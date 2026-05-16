@@ -9,13 +9,10 @@ interface ProductCardGridProps {
   product: Product;
   showQuickActions?: boolean;
   isMobile?: boolean;
-  // State
   currentImageIndex: number;
   imageError: boolean;
-  // Setters
   setCurrentImageIndex: (idx: number) => void;
   setImageError: (err: boolean) => void;
-  // Derived
   images: string[];
   availableSizes: string[];
   availableColors: string[];
@@ -23,12 +20,9 @@ interface ProductCardGridProps {
   getVariantStock: (size: string) => number;
   hasVariants: boolean;
   availableStock: number;
-  // Actions
   handleAddToCart: (size: string, color: string, qty: number, onSuccess?: () => void) => void;
   hasSizes: boolean;
-  /** Agregar rápido directo (sin abrir panel exterior) */
   onQuickAdd?: (productId: string, options?: { size?: string; color?: string; quantity?: number }) => void;
-  /** Abrir el panel exterior de Quick Add (mobile) */
   onOpenQuickAdd?: () => void;
 }
 
@@ -151,7 +145,6 @@ export function ProductCardGrid({
                 <Eye className="text-[11px] sm:text-base" />
               </button>
 
-              {/* Agregar al carrito — en mobile abre el BottomSheet exterior; en desktop navega al detalle */}
               {isMobile && onOpenQuickAdd ? (
                 <button
                   onClick={(e) => {
