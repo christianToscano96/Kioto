@@ -13,7 +13,7 @@ export interface IProduct extends Document {
   sizes?: string[];
   colors?: string[];
   category?: mongoose.Types.ObjectId;
-  variants?: { size: string; stock: number }[]; // Size-based stock
+  variants?: { size: string; colorStock: { name: string; stock: number }[]; stock: number }[]; // Size + color variants
   createdAt: Date;
   updatedAt: Date;
 }
@@ -86,6 +86,21 @@ const productSchema = new mongoose.Schema<IProduct>(
           required: true,
           trim: true,
         },
+        colorStock: [
+          {
+            name: {
+              type: String,
+              required: true,
+              trim: true,
+            },
+            stock: {
+              type: Number,
+              required: true,
+              min: [0, 'Stock must be non-negative'],
+              default: 0,
+            },
+          },
+        ],
         stock: {
           type: Number,
           required: true,
@@ -114,10 +129,13 @@ productSchema.pre<IProduct>('validate', function (next) {
   next();
 });
 
-// Virtual for total stock (sum of variants or base stock)
+// Virtual for total stock (sum of colorStock across all variants or base stock)
 productSchema.virtual('totalStock').get(function () {
   if (this.variants && this.variants.length > 0) {
-    return this.variants.reduce((sum: number, v: any) => sum + (v.stock || 0), 0);
+    return this.variants.reduce((sum: number, v: any) => {
+      const colorSum = (v.colorStock || []).reduce((cs: number, c: any) => cs + (c.stock || 0), 0);
+      return sum + colorSum;
+    }, 0);
   }
   return this.stock || 0;
 });

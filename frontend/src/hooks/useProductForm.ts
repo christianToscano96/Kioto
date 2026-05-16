@@ -14,6 +14,16 @@ const SIZE_PRESETS: Record<SizeType, string[]> = {
   custom: [],
 };
 
+interface ColorStockEntry {
+  name: string;
+  stock: number;
+}
+
+interface SizeVariantEntry {
+  colorStock: ColorStockEntry[];
+  totalStock: number;
+}
+
 interface ProductFormData {
   name: string;
   price: string;
@@ -24,7 +34,7 @@ interface ProductFormData {
   materials: string;
   hasSizes: boolean;
   sizeType: SizeType;
-  sizeStock: Record<string, number>;
+  sizeStock: Record<string, SizeVariantEntry>;
   sizes: string[];
   colors: string[];
   category: string;
@@ -57,12 +67,15 @@ export function useProductForm({ product, isEdit }: UseProductFormProps) {
   useEffect(() => {
     if (isEdit && product) {
       const hasSizes = product.variants && product.variants.length > 0;
-      const sizeStock = hasSizes && product.variants
-        ? product.variants.reduce((acc: Record<string, number>, v: any) => {
-            acc[v.size] = v.stock || 0;
-            return acc;
-          }, {})
-        : {};
+      let sizeStock: Record<string, SizeVariantEntry> = {};
+
+      if (hasSizes && product.variants) {
+        product.variants.forEach((v: any) => {
+          const colorStock = v.colorStock || [];
+          const totalStock = colorStock.reduce((sum: number, c: any) => sum + (c.stock || 0), 0);
+          sizeStock[v.size] = { colorStock, totalStock };
+        });
+      }
 
       setFormData({
         name: product.name || '',
@@ -74,7 +87,7 @@ export function useProductForm({ product, isEdit }: UseProductFormProps) {
         materials: product.materials || '',
         hasSizes: hasSizes || false,
         sizeType: 'tops',
-        sizeStock: sizeStock,
+        sizeStock,
         sizes: product.sizes || [],
         colors: product.colors || [],
         category: typeof product.category === 'object' ? product.category?._id : product.category || '',
@@ -118,11 +131,62 @@ export function useProductForm({ product, isEdit }: UseProductFormProps) {
     }));
   };
 
-  const updateSizeStock = (size: string, stock: number) => {
-    setFormData(prev => ({
-      ...prev,
-      sizeStock: { ...prev.sizeStock, [size]: stock }
-    }));
+  // — Variant helpers —
+  const toggleSizeVariant = (size: string) => {
+    setFormData((prev) => {
+      const next = { ...prev };
+      if (next.sizeStock[size]) {
+        // desactivar
+        const { [size]: _, ...rest } = next.sizeStock;
+        next.sizeStock = rest;
+      } else {
+        // activar con colorStock vacío
+        next.sizeStock = { ...next.sizeStock, [size]: { colorStock: [], totalStock: 0 } };
+      }
+      return next;
+    });
+  };
+
+  const addColorToVariant = (size: string, colorName: string) => {
+    setFormData((prev) => {
+      const variant = prev.sizeStock[size];
+      if (!variant) return prev;
+      if (variant.colorStock.some((c) => c.name === colorName)) return prev;
+      const colorStock = [...variant.colorStock, { name: colorName, stock: 0 }];
+      const totalStock = colorStock.reduce((sum, c) => sum + c.stock, 0);
+      return {
+        ...prev,
+        sizeStock: { ...prev.sizeStock, [size]: { colorStock, totalStock } },
+      };
+    });
+  };
+
+  const removeColorFromVariant = (size: string, colorName: string) => {
+    setFormData((prev) => {
+      const variant = prev.sizeStock[size];
+      if (!variant) return prev;
+      const colorStock = variant.colorStock.filter((c) => c.name !== colorName);
+      const totalStock = colorStock.reduce((sum, c) => sum + c.stock, 0);
+      return {
+        ...prev,
+        sizeStock: { ...prev.sizeStock, [size]: { colorStock, totalStock } },
+      };
+    });
+  };
+
+  const updateColorStock = (size: string, colorName: string, stock: number) => {
+    setFormData((prev) => {
+      const variant = prev.sizeStock[size];
+      if (!variant) return prev;
+      const colorStock = variant.colorStock.map((c) =>
+        c.name === colorName ? { ...c, stock } : c
+      );
+      const totalStock = colorStock.reduce((sum, c) => sum + c.stock, 0);
+      return {
+        ...prev,
+        sizeStock: { ...prev.sizeStock, [size]: { colorStock, totalStock } },
+      };
+    });
   };
 
   const addImage = () => {
@@ -144,21 +208,34 @@ export function useProductForm({ product, isEdit }: UseProductFormProps) {
     }));
   };
 
-  const getSubmitData = () => ({
-    name: formData.name,
-    price: Number(formData.price),
-    images: formData.images.filter(Boolean),
-    description: formData.description,
-    stock: formData.hasSizes ? 0 : Number(formData.stock),
-    published: formData.published,
-    materials: formData.materials,
-    sizes: formData.hasSizes ? Object.keys(formData.sizeStock) : formData.sizes,
-    colors: formData.colors,
-    category: formData.category || undefined,
-    variants: formData.hasSizes 
-      ? Object.entries(formData.sizeStock).map(([size, stock]) => ({ size, stock }))
-      : undefined,
-  });
+  const getSubmitData = () => {
+    const base = {
+      name: formData.name,
+      price: Number(formData.price),
+      images: formData.images.filter(Boolean),
+      description: formData.description,
+      stock: formData.hasSizes ? 0 : Number(formData.stock),
+      published: formData.published,
+      materials: formData.materials,
+      category: formData.category || undefined,
+    } as Record<string, any>;
+
+    if (formData.hasSizes) {
+      base.variants = Object.entries(formData.sizeStock)
+        .filter(([, data]) => data.colorStock.length > 0)
+        .map(([size, data]) => ({
+          size,
+          colorStock: data.colorStock,
+          stock: data.totalStock,
+        }));
+      // sizes y colors NO se envían — se manejan exclusivamente por variants
+    } else {
+      base.sizes = formData.sizes;
+      base.colors = formData.colors;
+    }
+
+    return base;
+  };
 
   return {
     formData,
@@ -167,7 +244,12 @@ export function useProductForm({ product, isEdit }: UseProductFormProps) {
     validate,
     toggleSize,
     removeColor,
-    updateSizeStock,
+    // variant helpers
+    toggleSizeVariant,
+    addColorToVariant,
+    removeColorFromVariant,
+    updateColorStock,
+    // image helpers
     addImage,
     updateImage,
     removeImage,

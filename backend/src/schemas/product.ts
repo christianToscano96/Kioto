@@ -15,6 +15,10 @@ export const createProductSchema = z.object({
     category: z.string().optional(),
     variants: z.array(z.object({
       size: z.string(),
+      colorStock: z.array(z.object({
+        name: z.string(),
+        stock: z.number().int().min(0).default(0),
+      })).optional().default([]),
       stock: z.number().int().min(0).default(0),
     })).optional(),
   }),
@@ -35,6 +39,10 @@ export const updateProductSchema = z.object({
     category: z.string().optional(),
     variants: z.array(z.object({
       size: z.string(),
+      colorStock: z.array(z.object({
+        name: z.string(),
+        stock: z.number().int().min(0).default(0),
+      })).optional().default([]),
       stock: z.number().int().min(0).default(0),
     })).optional(),
   }),

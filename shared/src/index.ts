@@ -20,9 +20,15 @@ export interface Category {
 }
 
 // Product Types
+export interface ProductColorStock {
+  name: string;   // hex color or color name
+  stock: number;
+}
+
 export interface ProductVariant {
   size: string;
-  stock: number;
+  colorStock: ProductColorStock[];
+  stock: number;   // auto-computed = sum of colorStock stocks
 }
 
 export interface Product {
