@@ -128,13 +128,13 @@ export const cartApi = {
   get: () => api.get<{ cart: Cart }>('/cart'),
 
   addItem: (data: { productId: string; quantity: number; size?: string; color?: string }) =>
-    api.post<Cart>('/cart/items', data),
+    api.post<{ cart: Cart }>('/cart/items', data),
 
   updateItem: (itemId: string, quantity: number) =>
-    api.put<Cart>(`/cart/items/${itemId}`, { quantity }),
+    api.put<{ cart: Cart }>(`/cart/items/${itemId}`, { quantity }),
 
   removeItem: (itemId: string) =>
-    api.delete<Cart>(`/cart/items/${itemId}`),
+    api.delete<{ cart: Cart }>(`/cart/items/${itemId}`),
 
   clear: () => api.delete('/cart'),
 

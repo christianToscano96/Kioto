@@ -84,7 +84,8 @@ router.post('/items', validate(addToCartSchema), async (req: Request, res: Respo
       res.cookie('sessionId', sessionId, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict' as const,
+        // Use 'none' for cross-origin in production, 'lax' for development
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         maxAge: 30 * 24 * 60 * 60 * 1000,
         path: '/',
       });
