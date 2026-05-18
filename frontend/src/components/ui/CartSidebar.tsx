@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { Minus, Plus } from "@/components/icons";
 import { useCartStore } from "@/store/cart";
 import { useToast } from "@/components/ui/Toast";
@@ -23,17 +23,14 @@ interface CartSidebarProps {
   products: Product[] | undefined;
 }
 
-/**
- * Panel lateral derecho para agregar productos al carrito.
- * Se abre desde cualquier tarjeta de producto tocando el botón de carrito.
- * Contenido desacoplado de ProductsListPage — lógica propia.
- */
+
 export function CartSidebar({ products }: CartSidebarProps) {
   const state = useQuickAddSidebar();
   const closeSidebar = useCloseQuickAddSidebar();
 
   const addToCart = useCartStore((s) => s.addToCart);
   const { addToast } = useToast();
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   const close = closeSidebar;
 
@@ -53,6 +50,8 @@ export function CartSidebar({ products }: CartSidebarProps) {
     [product],
   );
 
+  const images = useMemo(() => product?.images || [], [product?.images]);
+
   // Tallas con al menos 1 color en stock
   const activeVariants = useMemo(() => getActiveVariants(variants), [variants]);
 
@@ -61,12 +60,10 @@ export function CartSidebar({ products }: CartSidebarProps) {
     [variants, state.selectedSize],
   );
 
-  const maxStock = getMaxStock(variants, state);
+  const maxStock = useMemo(() => getMaxStock(variants, state), [variants, state]);
 
-  const canAddToCart = (): string | null => getQuickAddError(variants, state);
-
-  const handleSubmit = async () => {
-    const error = canAddToCart();
+  const handleSubmit = useCallback(async () => {
+    const error = getQuickAddError(variants, state);
     if (error) {
       addToast({ type: "error", title: error });
       return;
@@ -88,6 +85,7 @@ export function CartSidebar({ products }: CartSidebarProps) {
         message: `${product?.name} fue agregado al carrito`,
       });
       resetSidebar();
+      setCurrentImageIndex(0);
     } catch {
       addToast({
         type: "error",
@@ -95,7 +93,12 @@ export function CartSidebar({ products }: CartSidebarProps) {
         message: "No se pudo agregar al carrito",
       });
     }
-  };
+  }, [variants, state, availableColors, addToCart, product, addToast, resetSidebar]);
+
+  const handleClose = useCallback(() => {
+    close();
+    setCurrentImageIndex(0);
+  }, [close]);
 
   if (!product) return null;
 
@@ -104,37 +107,66 @@ export function CartSidebar({ products }: CartSidebarProps) {
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-outline-variant/20 min-h-[56px]">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-lg overflow-hidden bg-surface-container flex-shrink-0 border border-outline-variant/30">
-            {product.images?.[0] ? (
-              <img
-                src={product.images[0]}
-                alt={product.name}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-[10px] text-on-surface-variant">
-                Sin img
-              </div>
-            )}
-          </div>
+         
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{product.name}</p>
-            <p className="text-[10px] text-on-surface-variant font-label">
+            <p className="truncate text-xl font-medium">{product.name}</p>
+            <p className="text-sm text-on-surface-variant font-label">
               ${product.price.toFixed(2)}
             </p>
           </div>
         </div>
-        <button
-          onClick={close}
-          className="w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container min-h-[44px] min-w-[44px]"
-          aria-label="Cerrar"
-        >
-          ✕
-        </button>
+     
       </div>
 
       {/* Contenido */}
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        {/* Galería de imágenes */}
+        {images.length > 0 && (
+          <div className="space-y-2">
+            <div className="relative aspect-square rounded-xl overflow-hidden bg-surface-container border border-outline-variant/20">
+              <img
+                src={images[currentImageIndex]}
+                alt={`${product.name} - imagen ${currentImageIndex + 1}`}
+                className="w-full h-full object-cover"
+              />
+              {images.length > 1 && (
+                <>
+                  <button
+                    onClick={() => setCurrentImageIndex((i) => (i === 0 ? images.length - 1 : i - 1))}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-surface/80 backdrop-blur-sm border border-outline-variant/30 flex items-center justify-center text-on-surface text-xl active:scale-95 transition-all"
+                    aria-label="Imagen anterior"
+                  >
+                    ‹
+                  </button>
+                  <button
+                    onClick={() => setCurrentImageIndex((i) => (i === images.length - 1 ? 0 : i + 1))}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-surface/80 backdrop-blur-sm border border-outline-variant/30 flex items-center justify-center text-on-surface text-xl active:scale-95 transition-all"
+                    aria-label="Imagen siguiente"
+                  >
+                    ›
+                  </button>
+                </>
+              )}
+            </div>
+            {/* Dots indicator */}
+            {images.length > 1 && (
+              <div className="flex justify-center gap-1.5">
+                {images.map((_, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setCurrentImageIndex(index)}
+                    className={`h-1.5 rounded-full transition-all ${
+                      index === currentImageIndex
+                        ? "w-6 bg-primary"
+                        : "w-1.5 bg-outline-variant/40 hover:bg-outline-variant"
+                    }`}
+                    aria-label={`Ir a imagen ${index + 1}`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {/* Tallas */}
         {activeVariants.length > 0 && (
           <div>
@@ -242,7 +274,7 @@ export function CartSidebar({ products }: CartSidebarProps) {
 
           <button
             onClick={handleSubmit}
-            disabled={!!canAddToCart()}
+            disabled={!!getQuickAddError(variants, state)}
             className="bg-primary text-on-primary font-label text-xs uppercase tracking-wider px-5 py-2.5 rounded-lg disabled:opacity-40 active:scale-95 transition-all"
           >
             Agregar
