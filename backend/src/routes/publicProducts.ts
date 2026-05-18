@@ -37,6 +37,8 @@ router.get('/products', validate(productQuerySchema), async (req: Request, res: 
 
     const totalPages = Math.ceil(total / limit);
 
+    // Cache for 5 minutes - products update less frequently
+    res.setHeader('Cache-Control', 'public, max-age=300');
     res.status(200).json({
       products,
       pagination: {
@@ -84,6 +86,8 @@ router.get('/products', validate(productQuerySchema), async (req: Request, res: 
        return;
      }
 
+     // Cache individual product for 10 minutes
+     res.setHeader('Cache-Control', 'public, max-age=600');
      res.status(200).json({ product });
    } catch (error) {
      console.error('Error fetching product:', error);
@@ -113,24 +117,36 @@ router.get('/products/slug/:slug', async (req: Request, res: Response) => {
 // GET /api/public/colors - Get all unique colors from published products
 router.get('/colors', async (_req: Request, res: Response) => {
   try {
-    const [legacyColors, variantColors] = await Promise.all([
-      Product.distinct<string>('colors', { published: true }),
-      Product.aggregate([
-        { $match: { published: true } },
-        { $unwind: '$variants' },
-        { $unwind: '$variants.colorStock' },
-        { $group: { _id: '$variants.colorStock.name' } },
-      ]),
+    // Optimized: single aggregation pipeline for both legacy and variant colors
+    const result = await Product.aggregate([
+      { $match: { published: true } },
+      {
+        $facet: {
+          legacyColors: [
+            { $unwind: { path: '$colors', preserveNullAndEmptyArrays: true } },
+            { $match: { colors: { $exists: true, $nin: [null, ''] } } },
+            { $group: { _id: '$colors' } },
+          ],
+          variantColors: [
+            { $unwind: { path: '$variants', preserveNullAndEmptyArrays: true } },
+            { $unwind: { path: '$variants.colorStock', preserveNullAndEmptyArrays: true } },
+            { $match: { 'variants.colorStock.name': { $exists: true, $nin: [null, ''] } } },
+            { $group: { _id: '$variants.colorStock.name' } },
+          ],
+        },
+      },
     ]);
 
     const colors = new Set<string>();
-    legacyColors.forEach((color) => {
-      if (typeof color === 'string' && color.length > 0) colors.add(color);
+    result[0].legacyColors?.forEach((entry: { _id: string }) => {
+      if (entry._id) colors.add(entry._id);
     });
-    variantColors.forEach((entry) => {
-      if (typeof entry._id === 'string' && entry._id.length > 0) colors.add(entry._id);
+    result[0].variantColors?.forEach((entry: { _id: string }) => {
+      if (entry._id) colors.add(entry._id);
     });
 
+    // Cache for 1 hour - colors don't change frequently
+    res.setHeader('Cache-Control', 'public, max-age=3600');
     res.status(200).json({ colors: Array.from(colors).sort() });
   } catch (error) {
     console.error('Error fetching colors:', error);

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { Minus, Plus } from "@/components/icons";
 import { useCartStore } from "@/store/cart";
 import {
@@ -32,6 +32,7 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
   const setQuantity = useSetQuickAddQuantity();
   const reset = useResetQuickAdd();
   const { addToast } = useToast();
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   const product = useMemo(
     () => products?.find((item) => item._id === state.productId),
@@ -43,15 +44,17 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
     [product],
   );
 
-  if (!enabled || !state.productId || !product) return null;
+  const images = useMemo(() => product?.images || [], [product?.images]);
 
-  const activeVariants = getActiveVariants(variants);
-  const availableColors = getAvailableColors(variants, state.selectedSize);
-  const maxStock = getMaxStock(variants, state);
-  const canAddToCart = () => getQuickAddError(variants, state);
+  const activeVariants = useMemo(() => getActiveVariants(variants), [variants]);
+  const availableColors = useMemo(
+    () => getAvailableColors(variants, state.selectedSize),
+    [variants, state.selectedSize],
+  );
+  const maxStock = useMemo(() => getMaxStock(variants, state), [variants, state]);
 
-  const handleSubmit = async () => {
-    const error = canAddToCart();
+  const handleSubmit = useCallback(async () => {
+    const error = getQuickAddError(variants, state);
     if (error) {
       addToast({ type: "error", title: error });
       return;
@@ -62,36 +65,36 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
       (availableColors.length === 1 ? availableColors[0] : undefined);
 
     try {
-      await addToCart(product, state.quantity, state.selectedSize, finalColor || undefined);
+      await addToCart(product!, state.quantity, state.selectedSize, finalColor || undefined);
       addToast({
         type: "success",
         title: "¡Agregado!",
-        message: `${product.name} fue agregado al carrito`,
+        message: `${product!.name} fue agregado al carrito`,
       });
       reset();
+      setCurrentImageIndex(0);
     } catch {
       addToast({ type: "error", title: "Error", message: "No se pudo agregar" });
     }
-  };
+  }, [variants, state, availableColors, addToCart, product, addToast, reset]);
+
+  const handleClose = useCallback(() => {
+    reset();
+    setCurrentImageIndex(0);
+  }, [reset]);
+
+  if (!enabled || !state.productId || !product) return null;
 
   return (
     <BottomSheet
       isOpen={true}
-      onClose={reset}
+      onClose={handleClose}
       title={
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-lg overflow-hidden bg-surface-container flex-shrink-0 border border-outline-variant/30">
-            {product.images?.[0] ? (
-              <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-[10px] text-on-surface-variant">
-                Sin img
-              </div>
-            )}
-          </div>
+          
           <div className="min-w-0">
-            <p className="truncate">{product.name}</p>
-            <p className="text-[10px] text-on-surface-variant font-label">
+            <p className="truncate text-xl font-medium">{product.name}</p>
+            <p className="text-sm text-on-surface-variant font-label">
               ${product.price.toFixed(2)}
             </p>
           </div>
@@ -101,6 +104,53 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
       closable
     >
       <div className="space-y-4 py-2">
+        {/* Galería de imágenes */}
+        {images.length > 0 && (
+          <div className="space-y-2">
+            <div className="relative aspect-square rounded-xl overflow-hidden bg-surface-container border border-outline-variant/20">
+              <img
+                src={images[currentImageIndex]}
+                alt={`${product.name} - imagen ${currentImageIndex + 1}`}
+                className="w-full h-full object-cover"
+              />
+              {images.length > 1 && (
+                <>
+                  <button
+                    onClick={() => setCurrentImageIndex((i) => (i === 0 ? images.length - 1 : i - 1))}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-surface/80 backdrop-blur-sm border border-outline-variant/30 flex items-center justify-center text-on-surface active:scale-95 transition-all"
+                    aria-label="Imagen anterior"
+                  >
+                    ‹
+                  </button>
+                  <button
+                    onClick={() => setCurrentImageIndex((i) => (i === images.length - 1 ? 0 : i + 1))}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-surface/80 backdrop-blur-sm border border-outline-variant/30 flex items-center justify-center text-on-surface active:scale-95 transition-all"
+                    aria-label="Imagen siguiente"
+                  >
+                    ›
+                  </button>
+                </>
+              )}
+            </div>
+            {/* Dots indicator */}
+            {images.length > 1 && (
+              <div className="flex justify-center gap-1.5">
+                {images.map((_, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setCurrentImageIndex(index)}
+                    className={`h-1.5 rounded-full transition-all ${
+                      index === currentImageIndex
+                        ? "w-6 bg-primary"
+                        : "w-1.5 bg-outline-variant/40 hover:bg-outline-variant"
+                    }`}
+                    aria-label={`Ir a imagen ${index + 1}`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {activeVariants.length > 0 && (
           <div>
             <p className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant mb-2">Talla</p>
@@ -191,7 +241,7 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
 
           <button
             onClick={handleSubmit}
-            disabled={!!canAddToCart()}
+            disabled={!!getQuickAddError(variants, state)}
             className="bg-primary text-on-primary font-label text-xs uppercase tracking-wider px-5 py-2.5 rounded-lg disabled:opacity-40 active:scale-95 transition-all"
           >
             Agregar al carrito

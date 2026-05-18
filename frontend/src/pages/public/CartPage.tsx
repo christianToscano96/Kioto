@@ -70,14 +70,6 @@ if (items.length === 0) {
                     label="Volver" 
                     showLabelOnMobile={true}
                   />
-                <Link 
-                  to="/" 
-                  className="text-xs sm:text-sm uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors font-label flex items-center gap-1 min-h-[44px] rounded-lg hover:bg-surface-container px-2"
-                  title="Volver al inicio"
-                >
-                  <span className="material-symbols-outlined text-sm sm:text-base">home</span>
-                  <span className="hidden xs:inline">Inicio</span>
-                </Link>
               </div>
             </div>
             <p className="font-label text-sm uppercase tracking-[0.2em] text-on-surface-variant">
@@ -86,7 +78,7 @@ if (items.length === 0) {
           </header>
           <div className="text-center py-12 sm:py-16 animate-fade-in">
             <p className="text-on-surface-variant mb-6 sm:mb-8 max-w-md mx-auto">
-              Descubre nuestra colección curada de objetos artesanales.
+              No tienes productos en tu carrito. Explora nuestra selección de canastas y
             </p>
             <Link to="/products">
               <button className="bg-primary text-on-primary px-6 sm:px-8 py-3 rounded-lg font-label font-bold uppercase tracking-widest hover:bg-primary-container transition-colors animate-fade-in min-h-[44px]" style={{ animationDelay: '200ms' }}>
