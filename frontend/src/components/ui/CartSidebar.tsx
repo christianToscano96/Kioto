@@ -4,7 +4,6 @@ import { useCartStore } from "@/store/cart";
 import { useToast } from "@/components/ui/Toast";
 import {
   useQuickAddSidebar,
-  useOpenQuickAddSidebar,
   useCloseQuickAddSidebar,
   useSetSidebarSize,
   useSetSidebarColor,
@@ -12,6 +11,13 @@ import {
   useResetSidebar,
 } from "@/store/ui";
 import type { Product, ProductVariant } from "@shared/index";
+import {
+  getActiveVariants,
+  getAvailableColors,
+  getColorStockMap,
+  getMaxStock,
+  getQuickAddError,
+} from "@/lib/quickAddStock";
 
 interface CartSidebarProps {
   products: Product[] | undefined;
@@ -24,13 +30,11 @@ interface CartSidebarProps {
  */
 export function CartSidebar({ products }: CartSidebarProps) {
   const state = useQuickAddSidebar();
-  const openSidebar = useOpenQuickAddSidebar();
   const closeSidebar = useCloseQuickAddSidebar();
 
   const addToCart = useCartStore((s) => s.addToCart);
   const { addToast } = useToast();
 
-  const open = openSidebar;
   const close = closeSidebar;
 
   const setSidebarSize = useSetSidebarSize();
@@ -50,42 +54,16 @@ export function CartSidebar({ products }: CartSidebarProps) {
   );
 
   // Tallas con al menos 1 color en stock
-  const activeVariants = useMemo(
-    () => variants.filter((v) => (v.colorStock || []).length > 0),
-    [variants],
+  const activeVariants = useMemo(() => getActiveVariants(variants), [variants]);
+
+  const availableColors = useMemo(
+    () => getAvailableColors(variants, state.selectedSize),
+    [variants, state.selectedSize],
   );
 
-  const getColorStockMap = (size: string): Record<string, number> => {
-    const variant = variants.find((v) => v.size === size);
-    if (!variant) return {};
-    return (variant.colorStock || []).reduce((acc, c) => {
-      acc[c.name] = c.stock || 0;
-      return acc;
-    }, {} as Record<string, number>);
-  };
+  const maxStock = getMaxStock(variants, state);
 
-  const availableColors =
-    state.selectedSize && state.selectedSize.trim() !== ""
-      ? Object.keys(getColorStockMap(state.selectedSize))
-      : [];
-
-  const getMaxStock = (): number => {
-    if (!state.selectedSize || state.selectedSize.trim() === "") return 0;
-    const map = getColorStockMap(state.selectedSize);
-    if (state.selectedColor) return map[state.selectedColor] ?? 0;
-    return Object.values(map).reduce((s, n) => s + n, 0);
-  };
-
-  const maxStock = getMaxStock();
-
-  const canAddToCart = (): string | null => {
-    if (!state.selectedSize) return "Seleccioná una talla";
-    if (availableColors.length > 1 && !state.selectedColor)
-      return "Seleccioná un color";
-    if (maxStock === 0) return "Sin stock disponible";
-    if (state.quantity > maxStock) return "Stock insuficiente";
-    return null;
-  };
+  const canAddToCart = (): string | null => getQuickAddError(variants, state);
 
   const handleSubmit = async () => {
     const error = canAddToCart();
@@ -119,7 +97,7 @@ export function CartSidebar({ products }: CartSidebarProps) {
     }
   };
 
-  if (!open || !product) return null;
+  if (!product) return null;
 
   return (
     <div className="h-full flex flex-col">
@@ -204,7 +182,7 @@ export function CartSidebar({ products }: CartSidebarProps) {
             </p>
             <div className="flex flex-wrap gap-2">
               {availableColors.map((color) => {
-                const cs = getColorStockMap(state.selectedSize)[color] ?? 0;
+                const cs = getColorStockMap(variants, state.selectedSize)[color] ?? 0;
                 const isOut = cs === 0;
                 const isActive = state.selectedColor === color;
                 return (
@@ -228,7 +206,7 @@ export function CartSidebar({ products }: CartSidebarProps) {
             {state.selectedColor && (
               <p className="mt-1.5 text-[10px] font-mono text-primary">
                 {state.selectedColor} ·{" "}
-                {getColorStockMap(state.selectedSize)[state.selectedColor]} unidades
+                {getColorStockMap(variants, state.selectedSize)[state.selectedColor]} unidades
               </p>
             )}
           </div>

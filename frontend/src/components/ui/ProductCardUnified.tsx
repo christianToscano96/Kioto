@@ -68,11 +68,7 @@ export function ProductCardUnified({
         product={product}
         showQuickActions={showQuickActions}
         totalStock={totalStock}
-        getVariantStock={getVariantStock}
-        hasVariants={hasVariants}
         availableSizes={availableSizes}
-        availableStock={totalStock}
-        handleAddToCart={handleAddToCart}
         hasSizes={hasSizes}
         onAddToCart={onAddToCart}
       />

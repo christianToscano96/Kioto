@@ -1,6 +1,5 @@
 import { memo } from "react";
-import { Minus, Plus, ShoppingBag, Eye } from '@/components/icons';
-import { useProductStock } from "../../hooks/useProductStock";
+import { ShoppingBag, Eye } from '@/components/icons';
 import type { Product } from "../../../../shared/src";
 
 interface ProductCardListProps {
@@ -8,12 +7,8 @@ interface ProductCardListProps {
   showQuickActions?: boolean;
   // Derived
   totalStock: number;
-  getVariantStock: (size: string) => number;
-  hasVariants: boolean;
   availableSizes: string[];
-  availableStock: number;
   hasSizes: boolean;
-  handleAddToCart: (size: string, color: string, qty: number, onSuccess?: () => void) => void;
   /** Se dispara al tocar el botón de carrito — la página decide si abre sidebar o bottom sheet */
   onAddToCart: (productId: string) => void;
 }
@@ -22,12 +17,8 @@ export function ProductCardList({
   product,
   showQuickActions = true,
   totalStock,
-  getVariantStock,
-  hasVariants,
   availableSizes,
-  availableStock,
   hasSizes,
-  handleAddToCart,
   onAddToCart,
 }: ProductCardListProps) {
   return (

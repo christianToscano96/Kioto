@@ -2,32 +2,27 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useProductsStore } from "@/store/products";
 import { useCategoriesStore } from "@/store/categories";
-import { useUiStore } from "@/store/ui";
-import { useQuickAddSidebar, useOpenQuickAddSidebar, useCloseQuickAddSidebar } from "@/store/ui";
-import { useQuickAddPanel, useOpenQuickAdd, useCloseQuickAdd } from "@/store/ui";
-import { useSetQuickAddSize, useSetQuickAddColor, useSetQuickAddQuantity, useResetQuickAdd } from "@/store/ui";
+import { useQuickAddSidebar, useOpenQuickAddSidebar, useResetSidebar } from "@/store/ui";
+import { useOpenQuickAdd } from "@/store/ui";
 import { productsApi } from "@/lib/api";
 import { PublicHeader } from "@/components/layout/PublicHeader";
 import { Footer } from "@/components/layout/Footer";
 import { ProductCardUnified } from "@/components/ui/ProductCardUnified";
 import { Drawer } from "@/components/ui/Drawer";
 import { CartSidebar } from "@/components/ui/CartSidebar";
-import { BottomSheet } from "@/components/ui/BottomSheet";
+import { QuickAddBottomSheet } from "@/components/ui/QuickAddBottomSheet";
 import { SidebarFilters } from "@/components/public/SidebarFilters";
-import { useCartStore } from "@/store/cart";
 import { PageContainer } from "@/components/ui/Container";
 import {
   ActiveFilters,
   type ActiveFilter,
 } from "@/components/ui/ActiveFilters";
-import { useToast } from "@/components/ui/Toast";
 import { SortDropdown, type SortOption } from "@/components/ui/SortDropdown";
 import { ViewToggle } from "@/components/ui/ViewToggle";
 import { PriceRangeFilter } from "@/components/ui/PriceRangeFilter";
 import { BackButton } from "@/components/ui/BackButton";
-import { Filter, ArrowLeft, Minus, Plus, Loader2 } from "@/components/icons";
+import { Filter, ArrowLeft, Loader2 } from "@/components/icons";
 import { useDeviceType } from "@/hooks/useDeviceType";
-import type { ProductVariant } from "@shared/index";
 
 export function ProductsListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -50,21 +45,13 @@ export function ProductsListPage() {
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const { products, isLoading, error } = useProductsStore();
   const fetchProducts = useProductsStore.getState().fetchProducts;
-  const addToCart = useCartStore.getState().addToCart;
   // Quick Add Sidebar (right drawer — desktop)
   const quickAddSidebar = useQuickAddSidebar();
   const openQuickAddSidebar = useOpenQuickAddSidebar();
-  const closeQuickAddSidebar = useCloseQuickAddSidebar();
-  const resetSidebar = useUiStore.getState().resetSidebar;
+  const resetSidebar = useResetSidebar();
 
   // Quick Add BottomSheet (mobile)
-  const quickAddPanel = useQuickAddPanel();
   const openQuickAdd = useOpenQuickAdd();
-  const setQuickAddSize = useSetQuickAddSize();
-  const setQuickAddColor = useSetQuickAddColor();
-  const setQuickAddQuantity = useSetQuickAddQuantity();
-  const resetQuickAdd = useResetQuickAdd();
-  const { addToast } = useToast();
   const { categories: allCategories, fetchCategories } = useCategoriesStore();
 
   // Fetch categories and colors on mount
@@ -439,193 +426,7 @@ export function ProductsListPage() {
         <CartSidebar products={products} />
       </Drawer>
 
-      {/* ══ BottomSheet de Quick Add (mobile) ══ */}
-      {quickAddPanel.productId && isMobile && (() => {
-        const product = products?.find((p) => p._id === quickAddPanel.productId);
-        if (!product) return null;
-
-        const variants = (product.variants as ProductVariant[]) || [];
-        const activeVariants = variants.filter(v => (v.colorStock || []).length > 0);
-
-        const getColorStockMap = (size: string): Record<string, number> => {
-          const variant = variants.find(v => v.size === size);
-          if (!variant) return {};
-          return (variant.colorStock || []).reduce((acc, c) => {
-            acc[c.name] = c.stock || 0;
-            return acc;
-          }, {} as Record<string, number>);
-        };
-
-        const availableColors = quickAddPanel.selectedSize
-          ? Object.keys(getColorStockMap(quickAddPanel.selectedSize))
-          : [];
-
-        const getMaxStock = () => {
-          if (!quickAddPanel.selectedSize) return 0;
-          const map = getColorStockMap(quickAddPanel.selectedSize);
-          if (quickAddPanel.selectedColor) return map[quickAddPanel.selectedColor] ?? 0;
-          return Object.values(map).reduce((s, n) => s + n, 0);
-        };
-
-        const maxStock = getMaxStock();
-
-        const canAddToCart = (): string | null => {
-          if (!quickAddPanel.selectedSize) return 'Seleccioná una talla';
-          if (availableColors.length > 1 && !quickAddPanel.selectedColor) return 'Seleccioná un color';
-          if (maxStock === 0) return 'Sin stock disponible';
-          if (quickAddPanel.quantity > maxStock) return 'Stock insuficiente';
-          return null;
-        };
-
-        const handleSubmit = async () => {
-          const error = canAddToCart();
-          if (error) {
-            addToast({ type: 'error', title: error });
-            return;
-          }
-          const finalColor = quickAddPanel.selectedColor
-            || (availableColors.length === 1 ? availableColors[0] : undefined);
-
-          try {
-            await addToCart(product, quickAddPanel.quantity, quickAddPanel.selectedSize, finalColor || undefined);
-            addToast({ type: 'success', title: '¡Agregado!', message: `${product.name} fue agregado al carrito` });
-            resetQuickAdd();
-          } catch {
-            addToast({ type: 'error', title: 'Error', message: 'No se pudo agregar' });
-          }
-        };
-
-        return (
-          <BottomSheet
-            isOpen={true}
-            onClose={resetQuickAdd}
-            title={
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-10 h-10 rounded-lg overflow-hidden bg-surface-container flex-shrink-0 border border-outline-variant/30">
-                  {product.images?.[0] ? (
-                    <img
-                      src={product.images[0]}
-                      alt={product.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-[10px] text-on-surface-variant">
-                      Sin img
-                    </div>
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate">{product.name}</p>
-                  <p className="text-[10px] text-on-surface-variant font-label">${product.price.toFixed(2)}</p>
-                </div>
-              </div>
-            }
-            maxHeight="90%"
-            closable
-          >
-            <div className="space-y-4 py-2">
-              {activeVariants.length > 0 && (
-                <div>
-                  <p className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant mb-2">Talla</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {activeVariants.map((v) => {
-                      const totalStock = (v.colorStock || []).reduce((s, c) => s + (c.stock || 0), 0);
-                      const isOut = totalStock === 0;
-                      const isActive = quickAddPanel.selectedSize === v.size;
-                      return (
-                        <button
-                          key={v.size}
-                          onClick={() => {
-                            setQuickAddSize(v.size);
-                            setQuickAddColor("");
-                            setQuickAddQuantity(1);
-                          }}
-                          disabled={isOut}
-                          className={`
-                            min-w-[40px] h-9 px-3 text-sm rounded-lg border transition-all font-medium
-                            ${isActive
-                              ? "bg-primary text-on-primary border-primary"
-                              : isOut
-                                ? "border-outline-variant/30 text-on-surface-variant/40 opacity-50 cursor-not-allowed line-through"
-                                : "border-outline-variant active:scale-95"
-                            }
-                          `}
-                        >
-                          {v.size}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {quickAddPanel.selectedSize && availableColors.length > 0 && (
-                <div>
-                  <p className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant mb-2">Color</p>
-                  <div className="flex flex-wrap gap-2">
-                    {availableColors.map((color) => {
-                      const cs = getColorStockMap(quickAddPanel.selectedSize)[color] ?? 0;
-                      const isOut = cs === 0;
-                      const isActive = quickAddPanel.selectedColor === color;
-                      return (
-                        <button
-                          key={color}
-                          onClick={() => !isOut && setQuickAddColor(color)}
-                          disabled={isOut}
-                          className={`
-                            w-9 h-9 rounded-full border-2 transition-all
-                            ${isActive
-                              ? "border-primary scale-110 ring-2 ring-primary/25"
-                              : isOut
-                                ? "border-outline-variant/25 opacity-35 cursor-not-allowed grayscale"
-                                : "border-outline-variant active:scale-90"
-                            }
-                          `}
-                          style={{ backgroundColor: color }}
-                          title={`${color}${cs > 0 ? ` · ${cs} en stock` : ' · Agotado'}`}
-                        />
-                      );
-                    })}
-                  </div>
-                  {quickAddPanel.selectedColor && (
-                    <p className="mt-1.5 text-[10px] font-mono text-primary">
-                      {quickAddPanel.selectedColor} · {getColorStockMap(quickAddPanel.selectedSize)[quickAddPanel.selectedColor]} unidades
-                    </p>
-                  )}
-                </div>
-              )}
-
-              <div className="flex items-center justify-between pt-2 border-t border-outline-variant/20">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setQuickAddQuantity(Math.max(1, quickAddPanel.quantity - 1))}
-                    disabled={quickAddPanel.quantity <= 1}
-                    className="w-9 h-9 rounded-lg border border-outline-variant flex items-center justify-center disabled:opacity-40 active:scale-95 transition-all"
-                  >
-                    <Minus className="w-4 h-4" />
-                  </button>
-                  <span className="text-sm font-bold w-6 text-center tabular-nums">{quickAddPanel.quantity}</span>
-                  <button
-                    onClick={() => setQuickAddQuantity(Math.min(maxStock || 99, quickAddPanel.quantity + 1))}
-                    disabled={quickAddPanel.quantity >= (maxStock || 99)}
-                    className="w-9 h-9 rounded-lg border border-outline-variant flex items-center justify-center disabled:opacity-40 active:scale-95 transition-all"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <button
-                  onClick={handleSubmit}
-                  disabled={!!canAddToCart()}
-                  className="bg-primary text-on-primary font-label text-xs uppercase tracking-wider px-5 py-2.5 rounded-lg disabled:opacity-40 active:scale-95 transition-all"
-                >
-                  Agregar al carrito
-                </button>
-              </div>
-            </div>
-          </BottomSheet>
-        );
-      })()}
+      <QuickAddBottomSheet products={products} enabled={isMobile} />
 
       <Footer />
     </>
