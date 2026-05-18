@@ -56,6 +56,7 @@ const cartSchema = new Schema<ICart>(
 );
 
 // Index on sessionId (created automatically by unique: true above)
+cartSchema.index({ converted: 1, updatedAt: 1 });
 
 // Export model
 const Cart: Model<ICart> = mongoose.model<ICart>('Cart', cartSchema);

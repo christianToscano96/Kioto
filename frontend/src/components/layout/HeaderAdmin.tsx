@@ -5,15 +5,16 @@ import { UserDropdown } from "@/components/ui/UserDropdown";
 import { initNotifications, useNotificationsSocket } from "@/store/notifications";
 import { useEffect } from "react";
 
-// Init notifications on module load
-initNotifications();
-
 interface HeaderAdminProps {
   className?: string;
 }
 
 export function HeaderAdmin({ className }: HeaderAdminProps) {
   useNotificationsSocket();
+
+  useEffect(() => {
+    initNotifications();
+  }, []);
 
   return (
     <header className={`fixed top-0 right-0 left-64 h-16 bg-surface-container-low border-b border-outline-variant/30 z-40 ${className || ''}`}>

@@ -1,10 +1,14 @@
 import { Router } from 'express';
+import { authenticate, adminOnly } from '../middleware/auth';
 import Order from '../models/Order';
 import Product from '../models/Product';
 import { resendOrderConfirmationEmail } from '../services/email';
 import { getPayment, refundPayment } from '../services/galio';
+import { assertStockAvailable, deductStockForItems } from '../utils/stock';
 
 const router = Router();
+
+router.use(authenticate, adminOnly);
 
 // Get all orders (admin only) - supports date filtering
 router.get('/', async (req, res) => {
@@ -31,7 +35,8 @@ router.get('/', async (req, res) => {
 
     const orders = await Order.find(query)
       .populate('items.productId', 'name')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
     res.json(orders);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch orders' });
@@ -44,9 +49,13 @@ router.get('/:id', async (req, res) => {
     // Try to find by full ID or partial ID (last 8 chars)
     let order;
     if (req.params.id.length <= 8) {
-      // Search by partial ID
-      const orders = await Order.find({});
-      order = orders.find(o => o._id.toString().endsWith(req.params.id));
+      // Search by partial ID on the server instead of loading every order into Node
+      const [partialMatch] = await Order.aggregate([
+        { $addFields: { idString: { $toString: '$_id' } } },
+        { $match: { idString: { $regex: `${req.params.id}$` } } },
+        { $limit: 1 },
+      ]);
+      order = partialMatch;
     } else {
       order = await Order.findById(req.params.id)
         .populate('items.productId', 'name price')
@@ -165,32 +174,43 @@ router.post('/manual', async (req, res) => {
       return res.status(400).json({ error: 'Items are required' });
     }
 
-    // Get product prices and validate stock
+    const productIds = items.map((item: any) => item.productId);
+    const products = await Product.find({ _id: { $in: productIds } });
+    const productById = new Map(products.map((product) => [product._id.toString(), product]));
+
     const orderItems = [];
     let total = 0;
 
     for (const item of items) {
-      const product = await Product.findById(item.productId);
+      const product = productById.get(item.productId);
       if (!product) {
         return res.status(400).json({ error: `Product ${item.productId} not found` });
       }
-      if (product.stock < item.quantity) {
-        return res.status(400).json({ error: `Insufficient stock for ${product.name}` });
+
+      try {
+        const resolvedStock = assertStockAvailable(product, item.quantity, {
+          size: item.size,
+          color: item.color,
+        });
+
+        orderItems.push({
+          productId: product._id,
+          quantity: item.quantity,
+          price: product.price,
+          size: resolvedStock.size,
+          color: resolvedStock.color,
+        });
+        total += product.price * item.quantity;
+      } catch (stockError) {
+        return res.status(400).json({
+          error: stockError instanceof Error
+            ? `${product.name}: ${stockError.message}`
+            : `Insufficient stock for ${product.name}`,
+        });
       }
-
-      orderItems.push({
-        productId: product._id,
-        quantity: item.quantity,
-        price: product.price,
-      });
-      total += product.price * item.quantity;
-
-      // Deduct stock
-      await Product.findByIdAndUpdate(
-        product._id,
-        { $inc: { stock: -item.quantity } }
-      );
     }
+
+    await deductStockForItems(orderItems as any);
 
     const order = await Order.create({
       items: orderItems,

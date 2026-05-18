@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
 import Order from '../models/Order';
-import Product from '../models/Product';
-import { verifyPaymentStatus, getPayment } from '../services/galio';
+import { getPayment } from '../services/galio';
 import { sendOrderConfirmationEmail, sendAdminNotificationEmail } from '../services/email';
+import { deductStockForItems } from '../utils/stock';
 
 const router = Router();
 
@@ -13,11 +13,11 @@ const router = Router();
  */
 router.post('/galio', async (req, res) => {
   try {
-    console.log('=== GalioPay Webhook ===');
-    console.log('Body:', JSON.stringify(req.body, null, 2));
-    
     const { paymentId, referenceId, status } = req.body;
-    console.log('Parsed - referenceId:', referenceId, 'status:', status);
+
+    if (!referenceId && !paymentId) {
+      return res.status(400).json({ error: 'Missing payment reference' });
+    }
 
     // Convert referenceId to ObjectId if valid
     let orderQuery: any = {};
@@ -27,9 +27,11 @@ router.post('/galio', async (req, res) => {
       orderQuery = { galioPaymentId: paymentId };
     }
 
-    console.log('Order query:', orderQuery);
+    if (Object.keys(orderQuery).length === 0) {
+      return res.status(400).json({ error: 'Invalid payment reference' });
+    }
+
     const order = await Order.findOne(orderQuery);
-    console.log('Order found:', order ? order._id : 'NOT FOUND', 'Current status:', order?.status);
 
     if (!order) {
       return res.status(404).json({ error: 'Order not found' });
@@ -38,6 +40,11 @@ router.post('/galio', async (req, res) => {
     // Mark order as paid and deduct stock
     // GalioPay sends 'approved' or 'ok' for successful payments
     if (status === 'approved' || status === 'ok') {
+      if (order.status === 'paid') {
+        return res.json({ success: true, alreadyProcessed: true });
+      }
+
+      await deductStockForItems(order.items as any);
       order.status = 'paid';
       await order.save();
       
@@ -49,8 +56,6 @@ router.post('/galio', async (req, res) => {
         .then(() => console.log(`[EMAIL] Admin notification sent for order ${order._id}`))
         .catch((err) => console.error(`[EMAIL-ERROR] Admin notification failed for order ${order._id}:`, err));
       
-      // Deduct stock now that payment is confirmed
-      await deductStockForOrder(order);
       return res.json({ success: true });
     }
 
@@ -59,6 +64,7 @@ router.post('/galio', async (req, res) => {
       const payment = await getPayment(paymentId);
       // GalioPay API returns 'approved' for successful payments
       if ((payment.status === 'approved' || payment.status === 'ok') && order.status === 'pending') {
+        await deductStockForItems(order.items as any);
         order.status = 'paid';
         await order.save();
         
@@ -69,9 +75,6 @@ router.post('/galio', async (req, res) => {
          sendAdminNotificationEmail(order, order._id.toString(), order.shippingDetails?.name || 'Cliente')
            .then(() => console.log(`[EMAIL] Admin notification sent for order ${order._id}`))
            .catch((err) => console.error(`[EMAIL-ERROR] Admin notification failed for order ${order._id}:`, err));
-        
-        // Deduct stock now that payment is confirmed
-        await deductStockForOrder(order);
       } else if (payment.status === 'refunded') {
         order.status = 'cancelled';
         await order.save();
@@ -85,33 +88,5 @@ router.post('/galio', async (req, res) => {
   }
 });
 
-async function deductStockForOrder(order: any) {
-  try {
-    for (const item of order.items) {
-      const product = await Product.findById(item.productId);
-      const itemSize = (item as any).size;
-      
-      if (!product) continue;
-      
-      // Deduct from variant if size specified
-      if (product.variants && product.variants.length > 0 && itemSize) {
-        const variantIndex = product.variants.findIndex((v: any) => v.size === itemSize);
-        if (variantIndex >= 0) {
-          product.variants[variantIndex].stock -= item.quantity;
-          await product.save();
-          continue;
-        }
-      }
-      
-      // Otherwise deduct from base stock
-      await Product.findByIdAndUpdate(
-        item.productId,
-        { $inc: { stock: -item.quantity } }
-      );
-    }
-  } catch (error) {
-    console.error('Error deducting stock:', error);
-  }
-}
 
 export default router;

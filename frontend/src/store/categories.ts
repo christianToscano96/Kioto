@@ -43,20 +43,9 @@ export const useCategoriesStore = create<CategoriesStore>((set, get) => ({
       
       set({ isLoading: true, error: null });
      try {
-// Try admin endpoint first (if authenticated)
-        try {
-          const response = await adminCategoriesApi.list();
-          set({ categories: response.categories, lastFetch: Date.now() });
-          return;
-        } catch (adminError: any) {
-          // If unauthorized or forbidden, fall back to public endpoint
-          if (adminError.response?.status !== 401 && adminError.response?.status !== 403) {
-            throw adminError;
-          }
-        }
-        // Fallback to public endpoint
-        const response = await adminCategoriesApi.listPublic();
-        set({ categories: response.categories, lastFetch: Date.now() });
+       // Public pages must not probe the admin-only endpoint first.
+       const response = await adminCategoriesApi.listPublic();
+       set({ categories: response.categories, lastFetch: Date.now() });
      } catch (error) {
        const message = error instanceof Error ? error.message : 'Failed to fetch categories';
        set({ error: message });
@@ -68,19 +57,8 @@ export const useCategoriesStore = create<CategoriesStore>((set, get) => ({
 createCategory: async (data) => {
      set({ isLoading: true, error: null });
      try {
-       // Try admin endpoint first
-       try {
-         await adminCategoriesApi.create(data);
-         await get().fetchCategories();
-         return;
-       } catch (adminError: any) {
-         // If unauthorized or forbidden, fall back to public endpoint
-         if (adminError.response?.status !== 401 && adminError.response?.status !== 403) {
-           throw adminError;
-         }
-       }
-       // Fallback to public endpoint
-       await adminCategoriesApi.createPublic(data);
+       await adminCategoriesApi.create(data);
+       set({ lastFetch: null });
        await get().fetchCategories();
      } catch (error) {
        const message = error instanceof Error ? error.message : 'Failed to create category';
@@ -93,18 +71,8 @@ createCategory: async (data) => {
 updateCategory: async (id, data) => {
      set({ isLoading: true, error: null });
      try {
-       // Try admin endpoint first
-       try {
-         await adminCategoriesApi.update(id, data);
-         await get().fetchCategories();
-         return;
-       } catch (adminError: any) {
-         if (adminError.response?.status !== 401 && adminError.response?.status !== 403) {
-           throw adminError;
-         }
-       }
-       // Fallback to public endpoint
-       await adminCategoriesApi.updatePublic(id, data);
+       await adminCategoriesApi.update(id, data);
+       set({ lastFetch: null });
        await get().fetchCategories();
      } catch (error) {
        const message = error instanceof Error ? error.message : 'Failed to update category';
@@ -117,18 +85,8 @@ updateCategory: async (id, data) => {
 deleteCategory: async (id) => {
      set({ isLoading: true, error: null });
      try {
-       // Try admin endpoint first
-       try {
-         await adminCategoriesApi.delete(id);
-         await get().fetchCategories();
-         return;
-       } catch (adminError: any) {
-         if (adminError.response?.status !== 401 && adminError.response?.status !== 403) {
-           throw adminError;
-         }
-       }
-       // Fallback to public endpoint
-       await adminCategoriesApi.deletePublic(id);
+       await adminCategoriesApi.delete(id);
+       set({ lastFetch: null });
        await get().fetchCategories();
      } catch (error) {
        const message = error instanceof Error ? error.message : 'Failed to delete category';

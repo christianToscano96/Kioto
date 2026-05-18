@@ -1,8 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { uploadSingle, uploadMultiple } from '../middleware/upload';
 import { uploadToCloudinary } from '../services/cloudinary';
+import { authenticate, adminOnly } from '../middleware/auth';
 
 const router = Router();
+
+router.use(authenticate, adminOnly);
 
 // POST /api/upload/image - Upload single image
 router.post('/image', uploadSingle, async (req: Request, res: Response) => {

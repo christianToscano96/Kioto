@@ -46,6 +46,12 @@ const orderItemSchema = new Schema<ICartItem>({
     required: true,
     min: [0, 'Price must be positive'],
   },
+  size: {
+    type: String,
+  },
+  color: {
+    type: String,
+  },
 });
 
 // Order Schema
@@ -109,6 +115,9 @@ const orderSchema = new Schema<IOrder>(
 // Indexes
 orderSchema.index({ userId: 1, status: 1 });
 orderSchema.index({ sessionId: 1 });
+orderSchema.index({ createdAt: -1 });
+orderSchema.index({ status: 1, createdAt: -1 });
+orderSchema.index({ galioPaymentId: 1 });
 
 // Export model
 const Order: Model<IOrder> = mongoose.model<IOrder>('Order', orderSchema);
