@@ -1,16 +1,17 @@
 import { Router, Request, Response } from 'express';
 import { Types } from 'mongoose';
-import Product from '../models/Product';
+import crypto from 'crypto';
 import Cart from '../models/Cart';
 import { validate } from '../middleware/validation';
 import { addToCartSchema, updateCartItemSchema, removeCartItemSchema } from '../schemas/cart';
 import { getOrCreateCart, addToCart, updateCartItem, removeFromCart, clearCart, calculateCartTotal, markCartAsConverted } from '../utils/cart';
+import { authenticate, adminOnly } from '../middleware/auth';
 
 const router = Router();
 
 // Helper to get session ID from request
 const getSessionId = (req: Request): string => {
-  return req.cookies?.sessionId || req.headers['x-session-id'] as string || 'anonymous';
+  return req.cookies?.sessionId || (req.headers['x-session-id'] as string) || crypto.randomUUID();
 };
 
 // Transform cart items to match frontend expected structure
@@ -70,44 +71,10 @@ router.post('/items', validate(addToCartSchema), async (req: Request, res: Respo
     const sessionId = getSessionId(req);
     const { productId, quantity, size, color } = req.body;
     
-    // Verify product exists and is published
-    const product = await Product.findOne({
-      _id: productId,
-      published: true,
-    });
-
-    if (!product) {
-      res.status(404).json({ error: 'Product not found or not available' });
-      return;
-    }
-
-// Check stock availability - support variants (size-based stock)
-     let availableStock = product.stock;
-     if (product.variants && size && size !== "") {
-       const variant = product.variants.find((v: any) => v.size === size);
-       if (!variant) {
-         res.status(400).json({ error: `Size ${size} not available for this product` });
-         return;
-       }
-       availableStock = variant.stock;
-     }
-
-     // If product has variants but no size selected, reject
-     if (product.variants && product.variants.length > 0 && (!size || size === "")) {
-       res.status(400).json({ error: 'Size is required for this product' });
-       return;
-     }
-
-     if (availableStock < quantity) {
-       res.status(400).json({ error: 'Requested quantity exceeds available stock' });
-       return;
-     }
-
     const cart = await addToCart(
       sessionId,
       new Types.ObjectId(productId),
       quantity,
-      product.price,
       size,
       color
     );
@@ -137,6 +104,11 @@ router.post('/items', validate(addToCartSchema), async (req: Request, res: Respo
       },
     });
   } catch (error) {
+    if (error instanceof Error) {
+      const status = error.message.includes('not found') ? 404 : 400;
+      res.status(status).json({ error: error.message });
+      return;
+    }
     console.error('Add to cart error:', error);
     res.status(500).json({ error: 'Failed to add item to cart' });
   }
@@ -227,7 +199,7 @@ router.delete('/', async (req: Request, res: Response) => {
 });
 
 // GET /api/cart/stats - Get cart conversion stats (admin only)
-router.get('/stats', async (req, res) => {
+router.get('/stats', authenticate, adminOnly, async (req, res) => {
   try {
     const totalCarts = await Cart.countDocuments();
     const abandonedCarts = await Cart.countDocuments({ converted: false });

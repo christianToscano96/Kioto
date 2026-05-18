@@ -115,10 +115,13 @@ const productSchema = new mongoose.Schema<IProduct>(
   }
 );
 
-// Text index for search functionality
+// Indexes for public catalog queries and admin filtering
 productSchema.index({ name: 'text', description: 'text' });
+productSchema.index({ published: 1, createdAt: -1 });
+productSchema.index({ published: 1, slug: 1 });
+productSchema.index({ category: 1, published: 1 });
 
-// Auto-generate slug from name before save
+// Auto-generate slug and keep variant aggregate stock in sync before save
 productSchema.pre<IProduct>('validate', function (next) {
   if (this.isModified('name') || !this.slug) {
     this.slug = this.name
@@ -126,6 +129,20 @@ productSchema.pre<IProduct>('validate', function (next) {
       .replace(/[^a-zA-Z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
   }
+
+  if (this.variants && this.variants.length > 0) {
+    let totalStock = 0;
+    this.variants.forEach((variant: any) => {
+      const variantStock = (variant.colorStock || []).reduce(
+        (sum: number, color: any) => sum + (color.stock || 0),
+        0,
+      );
+      variant.stock = variantStock;
+      totalStock += variantStock;
+    });
+    this.stock = totalStock;
+  }
+
   next();
 });
 

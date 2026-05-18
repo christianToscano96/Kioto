@@ -1,6 +1,8 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/auth';
+import { authenticate, adminOnly } from '../middleware/auth';
 import Settings from '../models/Settings';
+import User from '../models/User';
+import { verifyToken } from '../utils/jwt';
 
 interface Settings {
   store?: {
@@ -103,15 +105,45 @@ const defaultSettings: Settings = {
   },
 };
 
-// Get settings (authenticated only)
-router.get('/', authenticate, async (_req, res) => {
+
+const toPublicSettings = (settings: any) => ({
+  store: settings.store,
+  appearance: settings.appearance,
+  social: settings.social,
+  policies: settings.policies,
+  payments: {
+    stripe: {
+      testMode: settings.payments?.stripe?.testMode,
+      publishableKey: settings.payments?.stripe?.publishableKey,
+    },
+  },
+});
+
+// Get settings. Admins receive full settings; public callers receive a sanitized subset.
+router.get('/', async (req, res) => {
   try {
     let settings = await Settings.findOne();
     if (!settings) {
       // Create default settings
       settings = await Settings.create(defaultSettings);
     }
-    res.json(settings.toObject());
+    const rawSettings = settings.toObject();
+    const token = req.cookies?.token;
+
+    if (token) {
+      try {
+        const decoded = verifyToken(token);
+        const user = await User.findById(decoded.userId).select('role').lean();
+        if (user?.role === 'admin') {
+          res.json(rawSettings);
+          return;
+        }
+      } catch {
+        // Invalid public token: fall through to sanitized settings.
+      }
+    }
+
+    res.json(toPublicSettings(rawSettings));
   } catch (error) {
     console.error('Error fetching settings:', error);
     res.status(500).json({ error: 'Failed to fetch settings' });
@@ -119,7 +151,7 @@ router.get('/', authenticate, async (_req, res) => {
 });
 
 // Update settings
-router.put('/', authenticate, async (req, res) => {
+router.put('/', authenticate, adminOnly, async (req, res) => {
   try {
     const { settings } = req.body;
     if (!settings) {

@@ -6,11 +6,11 @@ import { createCategorySchema, updateCategorySchema } from '../schemas/category'
 
 const router = Router();
 
-// Public endpoint for testing (remove in production)
+// Public compatibility endpoint
 // GET /api/categories/public - List all categories
 router.get('/public', async (req: Request, res: Response) => {
   try {
-    const categories = await Category.find().sort({ name: 1 });
+    const categories = await Category.find().sort({ name: 1 }).lean();
     res.status(200).json(categories);
   } catch (error) {
     console.error('Error fetching categories:', error);
@@ -18,8 +18,8 @@ router.get('/public', async (req: Request, res: Response) => {
   }
 });
 
-// Public endpoint for creating categories (testing only)
-router.post('/public', async (req: Request, res: Response) => {
+// Legacy admin endpoint kept for compatibility
+router.post('/public', authenticate, adminOnly, validate(createCategorySchema), async (req: Request, res: Response) => {
   try {
     const { name, imageUrl } = req.body;
 
@@ -36,8 +36,8 @@ router.post('/public', async (req: Request, res: Response) => {
   }
 });
 
-// Public endpoint for updating categories (testing only)
-router.put('/public/:id', async (req: Request, res: Response) => {
+// Legacy admin endpoint kept for compatibility
+router.put('/public/:id', authenticate, adminOnly, validate(updateCategorySchema), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { name, imageUrl } = req.body;
@@ -64,8 +64,8 @@ router.put('/public/:id', async (req: Request, res: Response) => {
   }
 });
 
-// Public endpoint for deleting categories (testing only)
-router.delete('/public/:id', async (req: Request, res: Response) => {
+// Legacy admin endpoint kept for compatibility
+router.delete('/public/:id', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -89,7 +89,7 @@ router.use(authenticate, adminOnly);
 // GET /api/categories - List all categories (admin only)
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const categories = await Category.find().sort({ name: 1 });
+    const categories = await Category.find().sort({ name: 1 }).lean();
     res.status(200).json({ categories });
   } catch (error) {
     console.error('Error fetching categories:', error);

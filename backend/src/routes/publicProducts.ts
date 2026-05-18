@@ -30,7 +30,8 @@ router.get('/products', validate(productQuerySchema), async (req: Request, res: 
         .skip(skip)
         .limit(limit)
         .select('-__v')
-        .populate('category', 'name'), // Populate category name
+        .populate('category', 'name') // Populate category name
+        .lean(),
       Product.countDocuments(query),
     ]);
 
@@ -65,7 +66,7 @@ router.get('/products', validate(productQuerySchema), async (req: Request, res: 
      
      // If it looks like an ObjectId, try to find by ID first
      if (isObjectId) {
-       product = await Product.findById(id).select('-__v').populate('category', 'name');
+       product = await Product.findById(id).select('-__v').populate('category', 'name').lean();
        
        // If found by ID but not published, try by slug
        if (product && (product as any).published === false) {
@@ -75,7 +76,7 @@ router.get('/products', validate(productQuerySchema), async (req: Request, res: 
      
      // If not found by ID (or wasn't an ObjectId), try by slug
      if (!product) {
-       product = await Product.findOne({ slug: id, published: true }).select('-__v').populate('category', 'name');
+       product = await Product.findOne({ slug: id, published: true }).select('-__v').populate('category', 'name').lean();
      }
 
      if (!product) {
@@ -95,7 +96,7 @@ router.get('/products/slug/:slug', async (req: Request, res: Response) => {
   try {
     const { slug } = req.params;
 
-    const product = await Product.findOne({ slug, published: true }).select('-__v').populate('category', 'name');
+    const product = await Product.findOne({ slug, published: true }).select('-__v').populate('category', 'name').lean();
 
     if (!product) {
       res.status(404).json({ error: 'Product not found' });
@@ -112,9 +113,25 @@ router.get('/products/slug/:slug', async (req: Request, res: Response) => {
 // GET /api/public/colors - Get all unique colors from published products
 router.get('/colors', async (_req: Request, res: Response) => {
   try {
-    const colors = await Product.distinct<string>('colors', { published: true });
-    const filteredColors = colors.filter((c): c is string => typeof c === 'string' && c.length > 0);
-    res.status(200).json({ colors: filteredColors });
+    const [legacyColors, variantColors] = await Promise.all([
+      Product.distinct<string>('colors', { published: true }),
+      Product.aggregate([
+        { $match: { published: true } },
+        { $unwind: '$variants' },
+        { $unwind: '$variants.colorStock' },
+        { $group: { _id: '$variants.colorStock.name' } },
+      ]),
+    ]);
+
+    const colors = new Set<string>();
+    legacyColors.forEach((color) => {
+      if (typeof color === 'string' && color.length > 0) colors.add(color);
+    });
+    variantColors.forEach((entry) => {
+      if (typeof entry._id === 'string' && entry._id.length > 0) colors.add(entry._id);
+    });
+
+    res.status(200).json({ colors: Array.from(colors).sort() });
   } catch (error) {
     console.error('Error fetching colors:', error);
     res.status(500).json({ error: 'Failed to fetch colors' });

@@ -1,11 +1,12 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import Stripe from 'stripe';
 import { validate } from '../middleware/validation';
 import { createCheckoutSchema } from '../schemas/checkout';
 import { getOrCreateCart, calculateCartTotal, calculateShipping, markCartAsConverted } from '../utils/cart';
 import Cart from '../models/Cart';
 import Order from '../models/Order';
-import Product from '../models/Product';
+import { assertStockAvailable, deductStockForItems } from '../utils/stock';
 import { sendOrderConfirmationEmail, sendAdminNotificationEmail } from '../services/email';
 import { createPaymentLink } from '../services/galio';
 
@@ -16,7 +17,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
 
 // Helper to get session ID from request
 const getSessionId = (req: Request): string => {
-  return req.cookies?.sessionId || (req.headers['x-session-id'] as string) || 'anonymous';
+  return req.cookies?.sessionId || (req.headers['x-session-id'] as string) || crypto.randomUUID();
 };
 
 // POST /api/checkout - Create checkout session (fake mode - no Stripe)
@@ -34,35 +35,19 @@ router.post('/', validate(createCheckoutSchema), async (req: Request, res: Respo
     // Populate product details
     await cart.populate('items.productId', 'name images stock variants');
 
-    // Check stock availability
+    // Check stock availability using the same variant/color rules as cart and webhooks
     for (const item of cart.items) {
       const product = item.productId as any;
-      let availableStock = product.stock;
-      
-      // Check variant stock if size is specified
-      if (product.variants && product.variants.length > 0) {
-        // Item must have size if product has variants
-        const itemSize = (item as any).size;
-        if (!itemSize) {
-          res.status(400).json({ 
-            error: `${product.name} requires size selection. Please specify a size.` 
-          });
-          return;
-        }
-        
-        const variant = product.variants.find((v: any) => v.size === itemSize);
-        if (!variant) {
-          res.status(400).json({ 
-            error: `Size ${itemSize} not available for ${product.name}` 
-          });
-          return;
-        }
-        availableStock = variant.stock;
-      }
-      
-      if (availableStock < item.quantity) {
-        res.status(400).json({ 
-          error: `Insufficient stock for ${product.name}. Available: ${availableStock}, Required: ${item.quantity}` 
+      try {
+        assertStockAvailable(product, item.quantity, {
+          size: (item as any).size,
+          color: (item as any).color,
+        });
+      } catch (stockError) {
+        res.status(400).json({
+          error: stockError instanceof Error
+            ? `${product.name}: ${stockError.message}`
+            : `Insufficient stock for ${product.name}`,
         });
         return;
       }
@@ -76,9 +61,11 @@ router.post('/', validate(createCheckoutSchema), async (req: Request, res: Respo
     const order = await Order.create({
       sessionId,
       items: cart.items.map(item => ({
-        productId: item.productId,
+        productId: (item.productId as any)._id || item.productId,
         quantity: item.quantity,
         price: item.price,
+        size: (item as any).size,
+        color: (item as any).color,
       })),
       subtotal,
       shipping,
@@ -204,17 +191,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
        await cart.populate('items.productId', 'name stock variants');
        for (const item of cart.items) {
          const product = item.productId as any;
-         let availableStock = product.stock;
-         
-         if (product.variants && product.variants.length > 0 && (item as any).size) {
-           const variant = product.variants.find((v: any) => v.size === (item as any).size);
-           if (variant) {
-             availableStock = variant.stock;
-           }
-         }
-         
-         if (availableStock < item.quantity) {
-           console.error(`Insufficient stock for ${product.name} (ID: ${product._id})`);
+         try {
+           assertStockAvailable(product, item.quantity, {
+             size: (item as any).size,
+             color: (item as any).color,
+           });
+         } catch (stockError) {
+           console.error(`Insufficient stock for ${product.name} (ID: ${product._id}):`, stockError);
            res.json({ received: true });
            return;
          }
@@ -239,43 +222,35 @@ router.post('/webhook', async (req: Request, res: Response) => {
         },
       };
 
+      const paymentIntentId = stripeSession.payment_intent as string;
+      if (paymentIntentId) {
+        const existingOrder = await Order.findOne({ stripePaymentIntentId: paymentIntentId });
+        if (existingOrder) {
+          res.json({ received: true });
+          return;
+        }
+      }
+
       // Create order (no transactions for standalone MongoDB)
       const order = await Order.create({
         sessionId,
         items: cart.items.map(item => ({
-          productId: item.productId,
+          productId: (item.productId as any)._id || item.productId,
           quantity: item.quantity,
           price: item.price,
+          size: (item as any).size,
+          color: (item as any).color,
         })),
         subtotal,
         shipping,
         total: subtotal + shipping,
         status: 'paid',
-        stripePaymentIntentId: stripeSession.payment_intent as string,
+        stripePaymentIntentId: paymentIntentId,
         shippingDetails,
       });
 
-// Deduct stock from products
-       await Promise.all(
-         cart.items.map(async (item) => {
-           const product = await Product.findById(item.productId);
-           const itemSize = (item as any).size;
-           
-           if (product?.variants && product.variants.length > 0 && itemSize) {
-             const variantIndex = product.variants.findIndex((v: any) => v.size === itemSize);
-             if (variantIndex >= 0) {
-               product.variants[variantIndex].stock -= item.quantity;
-               await product.save();
-               return;
-             }
-           }
-           
-           return Product.findByIdAndUpdate(
-             item.productId,
-             { $inc: { stock: -item.quantity } }
-           );
-         })
-       );
+// Deduct stock atomically after payment is confirmed
+      await deductStockForItems(cart.items as any);
 
       // Mark cart as converted
       await markCartAsConverted(sessionId);

@@ -6,11 +6,25 @@ import { createProductSchema, updateProductSchema } from '../schemas/product';
 
 const router = Router();
 
-// Public endpoint for testing (remove in production)
-// GET /api/products/public - List all products
+const normalizeVariantStock = (variants: any[] = []) => {
+  let totalStock = 0;
+  const normalizedVariants = variants.map((variant) => {
+    const stock = (variant.colorStock || []).reduce(
+      (sum: number, color: any) => sum + (color.stock || 0),
+      0,
+    );
+    totalStock += stock;
+    return { ...variant, stock };
+  });
+
+  return { variants: normalizedVariants, totalStock };
+};
+
+// Public compatibility endpoint
+// GET /api/products/public - List published products
 router.get('/public', async (req: Request, res: Response) => {
   try {
-    const products = await Product.find({ published: true }).populate('category', 'name').sort({ createdAt: -1 });
+    const products = await Product.find({ published: true }).populate('category', 'name').sort({ createdAt: -1 }).lean();
     res.status(200).json(products);
   } catch (error) {
     console.error('Error fetching products:', error);
@@ -18,27 +32,28 @@ router.get('/public', async (req: Request, res: Response) => {
   }
 });
 
-// Public endpoint for testing (remove in production)
-// POST /api/products/public - Create product (no auth)
-router.post('/public', async (req: Request, res: Response) => {
+// Legacy admin endpoint kept for compatibility
+// POST /api/products/public - Create product
+router.post('/public', authenticate, adminOnly, validate(createProductSchema), async (req: Request, res: Response) => {
   try {
     const { name, price, images, description, stock, published, materials, sizes, colors, category, variants } = req.body;
 
     // Cuando hay variantes, sizes y colors se manejan dentro de variants — no se guardan separados
     const hasVariants = variants && variants.length > 0;
+    const normalized = hasVariants ? normalizeVariantStock(variants) : null;
 
     const product = await Product.create({
       name,
       price,
       images: images || [],
       description,
-      stock: stock ?? 0,
+      stock: normalized ? normalized.totalStock : (stock ?? 0),
       published: published ?? false,
       materials,
       sizes: hasVariants ? undefined : (sizes || []),
       colors: hasVariants ? undefined : (colors || []),
       category,
-      variants: variants || [],
+      variants: normalized ? normalized.variants : [],
     });
 
     res.status(201).json(product);
@@ -54,7 +69,7 @@ router.use(authenticate, adminOnly);
 // GET /api/products - List all products (admin only)
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const products = await Product.find().sort({ createdAt: -1 });
+    const products = await Product.find().sort({ createdAt: -1 }).lean();
     res.status(200).json({ products });
   } catch (error) {
     console.error('Error fetching products:', error);
@@ -68,6 +83,7 @@ router.post('/', validate(createProductSchema), async (req: Request, res: Respon
     const { name, price, images, description, stock, published, materials, sizes, colors, category, variants } = req.body;
 
     const hasVariants = variants && variants.length > 0;
+    const normalized = hasVariants ? normalizeVariantStock(variants) : null;
 
     // Create product - slug is auto-generated from name by pre-save hook
     const product = await Product.create({
@@ -75,13 +91,13 @@ router.post('/', validate(createProductSchema), async (req: Request, res: Respon
       price,
       images: images || [],
       description,
-      stock,
+      stock: normalized ? normalized.totalStock : stock,
       published,
       materials,
       sizes: hasVariants ? undefined : (sizes || []),
       colors: hasVariants ? undefined : (colors || []),
       category,
-      variants: variants || [],
+      variants: normalized ? normalized.variants : [],
     });
 
     res.status(201).json({ product });
@@ -106,8 +122,11 @@ router.put('/:id', validate(updateProductSchema), async (req: Request, res: Resp
     const hasVariants = updates.variants && updates.variants.length > 0;
     const cleanUpdates: any = { ...updates };
     if (hasVariants) {
+      const normalized = normalizeVariantStock(updates.variants);
       cleanUpdates.sizes = undefined;
       cleanUpdates.colors = undefined;
+      cleanUpdates.variants = normalized.variants;
+      cleanUpdates.stock = normalized.totalStock;
     }
 
     const product = await Product.findByIdAndUpdate(

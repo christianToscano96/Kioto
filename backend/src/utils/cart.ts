@@ -2,6 +2,7 @@ import { Types } from 'mongoose';
 import Cart, { ICart } from '../models/Cart';
 import { ICartItem } from '../models/types';
 import Product from '../models/Product';
+import { assertStockAvailable } from './stock';
 
 /**
  * Get or create a cart for a session
@@ -28,7 +29,6 @@ export const addToCart = async (
   sessionId: string,
   productId: Types.ObjectId,
   quantity: number,
-  price: number,
   size?: string,
   color?: string
 ): Promise<ICart> => {
@@ -38,50 +38,31 @@ export const addToCart = async (
     throw new Error('Product not found or not available');
   }
   
-  // Check stock based on variants or base stock
-  let availableStock = product.stock;
-  if (product.variants && size && size !== "") {
-    const variant = product.variants.find((v: any) => v.size === size);
-    if (!variant) {
-      throw new Error(`Size ${size} not available for this product`);
-    }
-    availableStock = variant.stock;
-  } else if (product.variants && product.variants.length > 0 && (!size || size === "")) {
-    throw new Error('Size is required for this product');
-  }
-  
-  if (availableStock < quantity) {
-    throw new Error(`Requested quantity exceeds available stock. Available: ${availableStock}`);
-  }
-  
-  // Verify price matches current product price
-  if (product.price !== price) {
-    throw new Error('Price has changed. Please refresh and try again.');
-  }
+  const resolvedStock = assertStockAvailable(product, quantity, { size, color });
   
   const cart = await getOrCreateCart(sessionId);
   
   // Check if item already exists in cart (same product + same size + same color)
   const existingItemIndex = cart.items.findIndex(
     item => item.productId.toString() === productId.toString() && 
-    (item as any).size === size &&
-    (item as any).color === color
+    (item as any).size === (resolvedStock.size ?? "") &&
+    (item as any).color === (resolvedStock.color ?? "")
   );
 
   if (existingItemIndex >= 0) {
     // Check if total quantity exceeds stock
     const newQuantity = cart.items[existingItemIndex].quantity + quantity;
-    if (availableStock < newQuantity) {
-      throw new Error(`Total quantity would exceed available stock. Available: ${availableStock}`);
+    if (resolvedStock.availableStock < newQuantity) {
+      throw new Error(`Total quantity would exceed available stock. Available: ${resolvedStock.availableStock}`);
     }
     cart.items[existingItemIndex].quantity = newQuantity;
   } else {
     cart.items.push({
       productId,
       quantity,
-      price,
-      size: size ?? "",
-      color: color ?? "",
+      price: product.price,
+      size: resolvedStock.size ?? "",
+      color: resolvedStock.color ?? "",
     } as any);
   }
   
@@ -119,19 +100,9 @@ export const updateCartItem = async (
     throw new Error('Product not found');
   }
   
-  // Check stock based on variants or base stock
   const itemSize = (cart.items[itemIndex] as any).size;
-  let availableStock = product.stock;
-  if (product.variants && itemSize && itemSize !== "") {
-    const variant = product.variants.find((v: any) => v.size === itemSize);
-    if (variant) {
-      availableStock = variant.stock;
-    }
-  }
-  
-  if (availableStock < quantity) {
-    throw new Error(`Requested quantity exceeds available stock. Available: ${availableStock}`);
-  }
+  const itemColor = (cart.items[itemIndex] as any).color;
+  assertStockAvailable(product, quantity, { size: itemSize, color: itemColor });
 
   // Verify price hasn't changed
   if (product.price !== cart.items[itemIndex].price) {

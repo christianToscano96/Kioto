@@ -1,8 +1,11 @@
 import { Router } from 'express';
 import { Notification } from '../models/notification';
 import { markAsRead, markAllAsRead } from '../utils/notifications';
+import { authenticate, adminOnly } from '../middleware/auth';
 
 const router = Router();
+
+router.use(authenticate, adminOnly);
 
 // Get all notifications with pagination
 router.get('/', async (req, res) => {
