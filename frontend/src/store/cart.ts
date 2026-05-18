@@ -69,15 +69,29 @@ addToCart: async (product: Product, quantity: number, size?: string, color?: str
                size: sizeValue,
                color: colorValue,
              };
-get().addItem(optimisticItem);
+             // Optimistic update
+             get().addItem(optimisticItem);
             
             try {
+              // Backend returns the updated cart - use it instead of fetching again
               const response = await cartApi.addItem({ productId: product._id, quantity, size: sizeValue, color: colorValue });
-              await get().fetchCart();
+              const items = response.data.cart?.items || [];
+              const sessionId = response.data.cart?.sessionId || null;
+              // Update with backend response (avoids race condition)
+              set({ items, sessionId });
             } catch (error: any) {
-              get().removeItem(product._id);
+              // Rollback optimistic update with exact match (size + color)
+              set((state) => ({
+                items: state.items.filter(
+                  (item) => 
+                    !(item.productId === product._id && 
+                      item.size === sizeValue && 
+                      item.color === colorValue)
+                ),
+              }));
               const message = error instanceof Error ? error.message : 'Failed to add item';
               set({ error: message });
+              throw error;
             } finally {
               set({ isSyncing: false });
             }
