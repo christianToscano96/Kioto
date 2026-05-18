@@ -92,6 +92,8 @@ export function useNotificationsSocket() {
     // Initialize socket
     const socket = io(socketUrl, {
       transports: ['websocket'],
+      reconnectionAttempts: 5,
+      timeout: 5000,
     });
 
     socketRef.current = socket;
