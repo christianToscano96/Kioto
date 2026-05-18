@@ -22,8 +22,11 @@ router.get('/public', async (req: Request, res: Response) => {
 // POST /api/products/public - Create product (no auth)
 router.post('/public', async (req: Request, res: Response) => {
   try {
-    const { name, price, images, description, stock, published, materials, sizes, colors, variants } = req.body;
-    
+    const { name, price, images, description, stock, published, materials, sizes, colors, category, variants } = req.body;
+
+    // Cuando hay variantes, sizes y colors se manejan dentro de variants — no se guardan separados
+    const hasVariants = variants && variants.length > 0;
+
     const product = await Product.create({
       name,
       price,
@@ -32,11 +35,12 @@ router.post('/public', async (req: Request, res: Response) => {
       stock: stock ?? 0,
       published: published ?? false,
       materials,
-      sizes: sizes || [],
-      colors: colors || [],
+      sizes: hasVariants ? undefined : (sizes || []),
+      colors: hasVariants ? undefined : (colors || []),
+      category,
       variants: variants || [],
     });
-    
+
     res.status(201).json(product);
   } catch (error) {
     console.error('Error creating product:', error);
@@ -63,6 +67,8 @@ router.post('/', validate(createProductSchema), async (req: Request, res: Respon
   try {
     const { name, price, images, description, stock, published, materials, sizes, colors, category, variants } = req.body;
 
+    const hasVariants = variants && variants.length > 0;
+
     // Create product - slug is auto-generated from name by pre-save hook
     const product = await Product.create({
       name,
@@ -72,8 +78,8 @@ router.post('/', validate(createProductSchema), async (req: Request, res: Respon
       stock,
       published,
       materials,
-      sizes: sizes || [],
-      colors: colors || [],
+      sizes: hasVariants ? undefined : (sizes || []),
+      colors: hasVariants ? undefined : (colors || []),
       category,
       variants: variants || [],
     });
@@ -96,9 +102,17 @@ router.put('/:id', validate(updateProductSchema), async (req: Request, res: Resp
     const { id } = req.params;
     const updates = req.body;
 
+    // Cuando hay variantes en el update, sizes y colors se manejan por variants
+    const hasVariants = updates.variants && updates.variants.length > 0;
+    const cleanUpdates: any = { ...updates };
+    if (hasVariants) {
+      cleanUpdates.sizes = undefined;
+      cleanUpdates.colors = undefined;
+    }
+
     const product = await Product.findByIdAndUpdate(
       id,
-      updates,
+      cleanUpdates,
       { new: true, runValidators: true }
     );
 

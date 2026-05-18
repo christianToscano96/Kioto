@@ -4,30 +4,14 @@ import { X } from "@/components/icons";
 interface BottomSheetProps {
   isOpen: boolean;
   onClose: () => void;
-  title?: string;
+  title?: React.ReactNode;
   children: React.ReactNode;
-  /** Altura máxima del sheet — "auto" se ajusta al contenido, "90%" ocupa casi toda la pantalla. Default: "auto" */
   maxHeight?: string;
-  /** Si se puede cerrar tocando fuera o apretando ⨉. Default: true */
   closable?: boolean;
-  /** Clases extra para el contenedor del contenido. Default: "" */
   contentClassName?: string;
 }
 
-/**
- * BottomSheet — modal deslizante desde abajo, estilo MercadoLibre / apps móviles.
- *
- * Reutilizable en cualquier parte de la app.
- *
- * @example
- * <BottomSheet
- *   isOpen={showPanel}
- *   onClose={() => setShowPanel(false)}
- *   title="Agregar al carrito"
- * >
- *   {/* contenido del panel *\/}
- * </BottomSheet>
- */
+
 export function BottomSheet({
   isOpen,
   onClose,
@@ -72,7 +56,7 @@ export function BottomSheet({
       onClick={handleBackdropClick}
       aria-modal="true"
       role="dialog"
-      aria-label={title ?? "Panel"}
+      aria-label={typeof title === 'string' ? title : 'Product quick add'}
     >
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/50 transition-opacity" />
@@ -93,10 +77,12 @@ export function BottomSheet({
         {/* Header */}
         {(title || closable) && (
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-outline-variant/30">
-            {title && (
+            {title && typeof title === 'string' ? (
               <h2 className="font-serif text-base font-bold text-on-surface">
                 {title}
               </h2>
+            ) : (
+              <div className="flex-1 min-w-0">{title}</div>
             )}
             {closable && (
               <button

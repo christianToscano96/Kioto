@@ -2,26 +2,27 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useProductsStore } from "@/store/products";
 import { useCategoriesStore } from "@/store/categories";
-import { useUiStore } from "@/store/ui";
+import { useQuickAddSidebar, useOpenQuickAddSidebar, useResetSidebar } from "@/store/ui";
+import { useOpenQuickAdd } from "@/store/ui";
 import { productsApi } from "@/lib/api";
 import { PublicHeader } from "@/components/layout/PublicHeader";
 import { Footer } from "@/components/layout/Footer";
 import { ProductCardUnified } from "@/components/ui/ProductCardUnified";
-import { BottomSheet } from "@/components/ui/BottomSheet";
-import { SidebarFilters } from "@/components/public/SidebarFilters";
 import { Drawer } from "@/components/ui/Drawer";
-import { useCartStore } from "@/store/cart";
+import { CartSidebar } from "@/components/ui/CartSidebar";
+import { QuickAddBottomSheet } from "@/components/ui/QuickAddBottomSheet";
+import { SidebarFilters } from "@/components/public/SidebarFilters";
 import { PageContainer } from "@/components/ui/Container";
 import {
   ActiveFilters,
   type ActiveFilter,
 } from "@/components/ui/ActiveFilters";
-import { useToast } from "@/components/ui/Toast";
 import { SortDropdown, type SortOption } from "@/components/ui/SortDropdown";
 import { ViewToggle } from "@/components/ui/ViewToggle";
 import { PriceRangeFilter } from "@/components/ui/PriceRangeFilter";
-import { Filter, ArrowLeft, Minus, Plus, Loader2 } from "@/components/icons";
 import { BackButton } from "@/components/ui/BackButton";
+import { Filter, ArrowLeft, Loader2 } from "@/components/icons";
+import { useDeviceType } from "@/hooks/useDeviceType";
 
 export function ProductsListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -36,7 +37,7 @@ export function ProductsListPage() {
   const [filterColor, setFilterColor] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortOption>("relevance");
   const [view, setView] = useState<"grid" | "list">("grid");
-  const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth < 640 : false);
+  const { isMobile } = useDeviceType();
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 60000]);
   const [visibleCount, setVisibleCount] = useState(12);
   const [availableColors, setAvailableColors] = useState<string[]>([]);
@@ -44,37 +45,19 @@ export function ProductsListPage() {
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const { products, isLoading, error } = useProductsStore();
   const fetchProducts = useProductsStore.getState().fetchProducts;
-  const addToCart = useCartStore.getState().addToCart;
-  const {
-    quickAddPanel,
-    openQuickAdd,
-    closeQuickAdd,
-    setQuickAddSize,
-    setQuickAddColor,
-    setQuickAddQuantity,
-    resetQuickAdd,
-  } = useUiStore();
-  const { addToast } = useToast();
+  // Quick Add Sidebar (right drawer — desktop)
+  const quickAddSidebar = useQuickAddSidebar();
+  const openQuickAddSidebar = useOpenQuickAddSidebar();
+  const resetSidebar = useResetSidebar();
+
+  // Quick Add BottomSheet (mobile)
+  const openQuickAdd = useOpenQuickAdd();
   const { categories: allCategories, fetchCategories } = useCategoriesStore();
 
   // Fetch categories and colors on mount
   useEffect(() => {
     fetchCategories();
     productsApi.getColors().then(setAvailableColors).catch(console.error);
-  }, [fetchCategories]);
-
-  // Detectar cambios de tamaño de ventana para forzar vista lista en móvil
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 640);
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  // Fetch categories on mount
-  useEffect(() => {
-    fetchCategories();
   }, [fetchCategories]);
 
   // Price bounds
@@ -103,7 +86,6 @@ export function ProductsListPage() {
     }
   }, [searchQuery, selectedCategory, setSearchParams]);
 
-  // Build categories from store - all categories with product counts
   const categories = useMemo(() => {
     // Count products per category
     const productCounts = new Map<string, number>();
@@ -229,40 +211,16 @@ export function ProductsListPage() {
     return () => observer.disconnect();
   }, [filteredProducts.length, visibleCount]);
 
-  const handleQuickAdd = (productId: string) => {
-    openQuickAdd(productId);
-  };
-
-  // Agregar al carrito desde el BottomSheet
-  const handleQuickAddSubmit = async () => {
-    if (!quickAddPanel.productId) return;
-    const product = products?.find((p) => p._id === quickAddPanel.productId);
-    if (!product) return;
-
-    try {
-      await addToCart(
-        product,
-        quickAddPanel.quantity,
-        quickAddPanel.selectedSize || undefined,
-        quickAddPanel.selectedColor || undefined,
-      );
-      addToast({
-        type: 'success',
-        title: '¡Agregado!',
-        message: `${product.name} fue agregado al carrito`,
-      });
-      resetQuickAdd();
-    } catch (error) {
-      console.error("Error al agregar al carrito:", error);
-      addToast({
-        type: 'error',
-        title: 'Error',
-        message: 'No se pudo agregar al carrito',
-      });
+   const handleQuickAdd = (productId: string) => {
+    // Desktop → sidebar derecho; Mobile (y tablet chica) → BottomSheet
+    if (isMobile) {
+      openQuickAdd(productId);
+    } else {
+      openQuickAddSidebar(productId);
     }
   };
 
-   // Active filters for display
+  // Active filters for display
   const activeFilters: ActiveFilter[] = [
     ...(selectedCategory
       ? [{ id: "category", label: "Categoría", value: selectedCategory }]
@@ -439,12 +397,10 @@ export function ProductsListPage() {
                     className="animate-fade-in"
                     style={{ animationDelay: `${index * 50}ms` }}
                   >
-                    <ProductCardUnified
+                     <ProductCardUnified
                       product={product}
                       variant={effectiveVariant}
-                      onQuickAdd={handleQuickAdd}
-                      isMobile={isMobile}
-                      onOpenQuickAdd={() => openQuickAdd(product._id)}
+                      onAddToCart={handleQuickAdd}
                     />
                   </div>
                 ))}
@@ -457,109 +413,20 @@ export function ProductsListPage() {
             )}
           </section>
         </div>
-      </PageContainer>
+        </PageContainer>
 
-      {/* ══ BottomSheet de Quick Add (mobile, fuera de la card) ══ */}
-      {quickAddPanel.productId && (() => {
-        const product = products?.find((p) => p._id === quickAddPanel.productId);
-        if (!product) return null;
-        return (
-          <BottomSheet
-            isOpen={true}
-            onClose={resetQuickAdd}
-            title={`${product.name} — $${product.price.toFixed(2)}`}
-            maxHeight="90%"
-            closable
-          >
-            <div className="space-y-4 py-2">
-              {/* Talla */}
-              {((product.variants?.map(v => v.size) || product.sizes || []).length > 0) && (
-                <div>
-                  <p className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant mb-2">
-                    Talla
-                  </p>
-                  <div className="flex flex-wrap gap-1">
-                    {(product.variants?.map(v => v.size) || product.sizes || []).map((size) => {
-                      const sizeStock = product.variants?.find(v => v.size === size)?.stock ?? 0;
-                      const isOut = sizeStock === 0;
-                      return (
-                        <button
-                          key={size}
-                          onClick={() => { if (!isOut) setQuickAddSize(size); }}
-                          disabled={isOut}
-                          className={`min-w-[36px] h-8 px-2 text-xs rounded-[4px] border transition-all font-medium ${
-                            quickAddPanel.selectedSize === size
-                              ? "bg-primary text-on-primary border-primary"
-                              : isOut
-                              ? "border-outline-variant/30 text-on-surface-variant/50 cursor-not-allowed opacity-50"
-                              : "border-outline-variant active:scale-95"
-                          }`}
-                        >
-                          {size}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+      {/* ══ Cart Sidebar (derecho, desktop) ══ */}
+      <Drawer
+        isOpen={!!products?.some((p) => p._id === quickAddSidebar.productId)}
+        onClose={resetSidebar}
+        position="right"
+        hideOnDesktop={false}
+        title=""
+      >
+        <CartSidebar products={products} />
+      </Drawer>
 
-              {/* Color */}
-              {(product.colors?.length ?? 0) > 0 && (
-                <div>
-                  <p className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant mb-2">
-                    Color
-                  </p>
-                  <div className="flex gap-2">
-                    {product.colors?.map((color, idx) => (
-                      <button
-                        key={color}
-                        onClick={() => setQuickAddColor(color)}
-                        className={`w-8 h-8 rounded-full border transition-all active:scale-90 ${
-                          quickAddPanel.selectedColor === color || (!quickAddPanel.selectedColor && idx === 0)
-                            ? "border-primary ring-2 ring-primary/30"
-                            : "border-outline-variant"
-                        }`}
-                        style={{ backgroundColor: color }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Cantidad + Botón */}
-              <div className="flex items-center justify-between pt-2 border-t border-outline-variant/20">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setQuickAddQuantity(Math.max(1, quickAddPanel.quantity - 1))}
-                    disabled={quickAddPanel.quantity <= 1}
-                    className="w-9 h-9 rounded-[4px] border border-outline-variant flex items-center justify-center disabled:opacity-40 active:scale-95 transition-all"
-                  >
-                    <Minus className="w-4 h-4" />
-                  </button>
-                  <span className="text-sm font-bold w-6 text-center tabular-nums">
-                    {quickAddPanel.quantity}
-                  </span>
-                  <button
-                    onClick={() => setQuickAddQuantity(Math.min(product.totalStock || product.stock || 99, quickAddPanel.quantity + 1))}
-                    disabled={quickAddPanel.quantity >= (product.totalStock || product.stock || 99)}
-                    className="w-9 h-9 rounded-[4px] border border-outline-variant flex items-center justify-center disabled:opacity-40 active:scale-95 transition-all"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <button
-                  onClick={handleQuickAddSubmit}
-                  disabled={(product.variants?.length ?? 0) > 0 && !quickAddPanel.selectedSize}
-                  className="bg-primary text-on-primary font-label text-xs uppercase tracking-wider px-5 py-2.5 rounded-[4px] disabled:opacity-40 active:scale-95 transition-all"
-                >
-                  Agregar al carrito
-                </button>
-              </div>
-            </div>
-          </BottomSheet>
-        );
-      })()}
+      <QuickAddBottomSheet products={products} enabled={isMobile} />
 
       <Footer />
     </>

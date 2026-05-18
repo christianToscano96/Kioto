@@ -1,12 +1,16 @@
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { useEffect, useMemo } from "react";
 import { useProductsStore } from "@/store/products";
 import { useCategoriesStore } from "@/store/categories";
-import { useCartStore } from "@/store/cart";
+import { useQuickAddSidebar, useOpenQuickAddSidebar, useResetSidebar } from "@/store/ui";
+import { useOpenQuickAdd } from "@/store/ui";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { PageContainer } from "@/components/ui/Container";
 import { ProductCardUnified } from "@/components/ui/ProductCardUnified";
+import { Drawer } from "@/components/ui/Drawer";
+import { CartSidebar } from "@/components/ui/CartSidebar";
+import { QuickAddBottomSheet } from "@/components/ui/QuickAddBottomSheet";
 import { Heart } from '@/components/icons';
 import { 
   Skeleton, 
@@ -17,11 +21,28 @@ import comprandoVideo from '../../../assets/comprando.webm';
 import fleteVideo from '../../../assets/flete.webm';
 import kiotoVideo from '../../../assets/kioto.webm';
 import { CategorySection } from '@/components/home/CategorySection';
+import { useDeviceType } from "@/hooks/useDeviceType";
 
 export function HomePage() {
   const { products, isLoading, fetchProducts } = useProductsStore();
   const { categories, fetchCategories } = useCategoriesStore();
-  const addToCart = useCartStore((state) => state.addToCart);
+  const { isMobile } = useDeviceType();
+
+  // Quick Add Sidebar (right drawer — desktop)
+  const quickAddSidebar = useQuickAddSidebar();
+  const openQuickAddSidebar = useOpenQuickAddSidebar();
+  const resetSidebar = useResetSidebar();
+
+  // Quick Add BottomSheet (mobile — existente)
+  const openQuickAdd = useOpenQuickAdd();
+
+  const handleQuickAdd = (productId: string) => {
+    if (isMobile) {
+      openQuickAdd(productId);
+    } else {
+      openQuickAddSidebar(productId);
+    }
+  };
 
   useEffect(() => {
     fetchProducts();
@@ -213,7 +234,7 @@ export function HomePage() {
                 <ProductCardUnified
                   key={product._id}
                   product={product}
-                  onQuickAdd={(_productId, options) => addToCart(product, options?.quantity || 1, options?.size)}
+                  onAddToCart={handleQuickAdd}
                 />
               ))}
             </div>
@@ -305,7 +326,18 @@ export function HomePage() {
             </div>
         </PageContainer>
 
-        
+        {/* ══ Cart Sidebar (derecho, desktop) ══ */}
+        <Drawer
+          isOpen={!!products?.some((p) => p._id === quickAddSidebar.productId)}
+          onClose={resetSidebar}
+          position="right"
+          hideOnDesktop={false}
+          title=""
+        >
+          <CartSidebar products={products} />
+        </Drawer>
+
+        <QuickAddBottomSheet products={products} />
 
       </main>
       <Footer />
