@@ -56,15 +56,35 @@ const cartLimiter = rateLimit({
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   "http://localhost:5173",
-  "https://kioto-ecomerce.vercel.app"
+  "https://kioto-ecomerce.vercel.app",
+  // Support all Vercel preview deployments
+  /https:\/\/kioto-.*\.vercel\.app$/,
 ].filter(Boolean);
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      // Allow requests with no origin (mobile apps, curl, Postman)
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      // Check if origin matches allowed origins (string or regex)
+      const isAllowed = allowedOrigins.some((allowed) => {
+        if (typeof allowed === 'string') {
+          return allowed === origin;
+        }
+        if (allowed instanceof RegExp) {
+          return allowed.test(origin);
+        }
+        return false;
+      });
+
+      if (isAllowed) {
         callback(null, true);
       } else {
+        console.error(`CORS blocked origin: ${origin}`);
+        console.error(`Allowed origins:`, allowedOrigins);
         callback(new Error("Not allowed by CORS"));
       }
     },
@@ -135,7 +155,21 @@ const startServer = async () => {
 // Initialize Socket.IO
    const io = new (await import('socket.io')).Server(server, {
      cors: {
-       origin: process.env.FRONTEND_URL || "http://localhost:5173",
+       origin: (origin, callback) => {
+         if (!origin) {
+           return callback(null, true);
+         }
+         const isAllowed = allowedOrigins.some((allowed) => {
+           if (typeof allowed === 'string') {
+             return allowed === origin;
+           }
+           if (allowed instanceof RegExp) {
+             return allowed.test(origin);
+           }
+           return false;
+         });
+         callback(null, isAllowed);
+       },
        credentials: true,
      }
    });
