@@ -1,9 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
-/**
- * Breakpoints alineados con Tailwind CSS
- * sm: 640px | md: 768px | lg: 1024px
- */
+
 const MOBILE_MAX = 640;  // < sm  → mobile
 const TABLET_MAX = 1024; // < lg  → tablet
 
@@ -20,13 +17,7 @@ export interface UseDeviceTypeReturn {
   width: number;
 }
 
-/**
- * Hook que detecta el tipo de dispositivo en tiempo real,
- * escuchando cambios de tamaño de ventana.
- *
- * Útil para adaptar layouts, mostrar/hide componentes,
- * o disparar lógica específica por breakpoint.
- */
+
 export function useDeviceType(): UseDeviceTypeReturn {
   const [width, setWidth] = useState(
     typeof window !== "undefined" ? window.innerWidth : 0,

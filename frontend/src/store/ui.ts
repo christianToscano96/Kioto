@@ -14,11 +14,20 @@ interface QuickAddPanel {
   quantity: number;
 }
 
+/** Panel lateral derecho para agregar al carrito desde cualquier tarjeta */
+interface QuickAddSidebar {
+  productId: string | null;
+  selectedSize: string;
+  selectedColor: string;
+  quantity: number;
+}
+
 interface UiState {
   isMobileMenuOpen: boolean;
   isSearchOpen: boolean;
   notifications: Notification[];
   quickAddPanel: QuickAddPanel;
+  quickAddSidebar: QuickAddSidebar;
 }
 
 interface UiActions {
@@ -36,6 +45,13 @@ interface UiActions {
   setQuickAddColor: (color: string) => void;
   setQuickAddQuantity: (qty: number) => void;
   resetQuickAdd: () => void;
+  // Quick Add Sidebar (derecho)
+  openQuickAddSidebar: (productId: string) => void;
+  closeQuickAddSidebar: () => void;
+  setSidebarSize: (size: string) => void;
+  setSidebarColor: (color: string) => void;
+  setSidebarQuantity: (qty: number) => void;
+  resetSidebar: () => void;
 }
 
 type UiStore = UiState & UiActions;
@@ -46,6 +62,12 @@ export const useUiStore = create<UiStore>((set) => ({
   isSearchOpen: false,
   notifications: [],
   quickAddPanel: {
+    productId: null,
+    selectedSize: "",
+    selectedColor: "",
+    quantity: 1,
+  },
+  quickAddSidebar: {
     productId: null,
     selectedSize: "",
     selectedColor: "",
@@ -111,6 +133,42 @@ export const useUiStore = create<UiStore>((set) => ({
         quantity: 1,
       },
     }),
+
+  // ── Quick Add Sidebar (derecho) ────────────────────────────
+  openQuickAddSidebar: (productId) =>
+    set({
+      quickAddSidebar: {
+        productId,
+        selectedSize: "",
+        selectedColor: "",
+        quantity: 1,
+      },
+    }),
+  closeQuickAddSidebar: () =>
+    set((state) => ({
+      quickAddSidebar: { ...state.quickAddSidebar, productId: null },
+    })),
+  setSidebarSize: (size) =>
+    set((state) => ({
+      quickAddSidebar: { ...state.quickAddSidebar, selectedSize: size },
+    })),
+  setSidebarColor: (color) =>
+    set((state) => ({
+      quickAddSidebar: { ...state.quickAddSidebar, selectedColor: color },
+    })),
+  setSidebarQuantity: (qty) =>
+    set((state) => ({
+      quickAddSidebar: { ...state.quickAddSidebar, quantity: Math.max(1, qty) },
+    })),
+  resetSidebar: () =>
+    set({
+      quickAddSidebar: {
+        productId: null,
+        selectedSize: "",
+        selectedColor: "",
+        quantity: 1,
+      },
+    }),
 }));
 
 // Selectors
@@ -120,3 +178,14 @@ export const useNotifications = () => useUiStore((state) => state.notifications)
 export const useQuickAddPanel = () => useUiStore((state) => state.quickAddPanel);
 export const useOpenQuickAdd = () => useUiStore((state) => state.openQuickAdd);
 export const useCloseQuickAdd = () => useUiStore((state) => state.closeQuickAdd);
+export const useSetQuickAddSize = () => useUiStore((state) => state.setQuickAddSize);
+export const useSetQuickAddColor = () => useUiStore((state) => state.setQuickAddColor);
+export const useSetQuickAddQuantity = () => useUiStore((state) => state.setQuickAddQuantity);
+export const useResetQuickAdd = () => useUiStore((state) => state.resetQuickAdd);
+export const useQuickAddSidebar = () => useUiStore((state) => state.quickAddSidebar);
+export const useOpenQuickAddSidebar = () => useUiStore((state) => state.openQuickAddSidebar);
+export const useCloseQuickAddSidebar = () => useUiStore((state) => state.closeQuickAddSidebar);
+export const useSetSidebarSize = () => useUiStore((state) => state.setSidebarSize);
+export const useSetSidebarColor = () => useUiStore((state) => state.setSidebarColor);
+export const useSetSidebarQuantity = () => useUiStore((state) => state.setSidebarQuantity);
+export const useResetSidebar = () => useUiStore((state) => state.resetSidebar);

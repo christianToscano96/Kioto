@@ -8,9 +8,22 @@ interface DrawerProps {
   title?: string;
   children: ReactNode;
   position?: 'left' | 'right' | 'bottom';
+  /**
+   * Si es `true` el drawer se oculta en pantallas >= lg (1024px).
+   * Por defecto `true` para mantener compatibilidad con el Drawer de filtros.
+   * Pasar `false` para usar el drawer en desktop también (ej: sidebar de carrito).
+   */
+  hideOnDesktop?: boolean;
 }
 
-export function Drawer({ isOpen, onClose, title, children, position = 'left' }: DrawerProps) {
+export function Drawer({
+  isOpen,
+  onClose,
+  title,
+  children,
+  position = 'left',
+  hideOnDesktop = true,
+}: DrawerProps) {
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -35,7 +48,7 @@ export function Drawer({ isOpen, onClose, title, children, position = 'left' }: 
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-50 lg:hidden">
+    <div className={`fixed inset-0 z-50 ${hideOnDesktop ? 'lg:hidden' : ''}`}>
       {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"

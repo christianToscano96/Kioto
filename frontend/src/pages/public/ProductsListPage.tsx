@@ -3,14 +3,17 @@ import { useSearchParams } from "react-router-dom";
 import { useProductsStore } from "@/store/products";
 import { useCategoriesStore } from "@/store/categories";
 import { useUiStore } from "@/store/ui";
+import { useQuickAddSidebar, useOpenQuickAddSidebar, useCloseQuickAddSidebar } from "@/store/ui";
+import { useQuickAddPanel, useOpenQuickAdd, useCloseQuickAdd } from "@/store/ui";
+import { useSetQuickAddSize, useSetQuickAddColor, useSetQuickAddQuantity, useResetQuickAdd } from "@/store/ui";
 import { productsApi } from "@/lib/api";
 import { PublicHeader } from "@/components/layout/PublicHeader";
 import { Footer } from "@/components/layout/Footer";
 import { ProductCardUnified } from "@/components/ui/ProductCardUnified";
-import { BottomSheet } from "@/components/ui/BottomSheet";
-import type { ProductVariant } from "../../../../shared/src/index";
-import { SidebarFilters } from "@/components/public/SidebarFilters";
 import { Drawer } from "@/components/ui/Drawer";
+import { CartSidebar } from "@/components/ui/CartSidebar";
+import { BottomSheet } from "@/components/ui/BottomSheet";
+import { SidebarFilters } from "@/components/public/SidebarFilters";
 import { useCartStore } from "@/store/cart";
 import { PageContainer } from "@/components/ui/Container";
 import {
@@ -21,9 +24,10 @@ import { useToast } from "@/components/ui/Toast";
 import { SortDropdown, type SortOption } from "@/components/ui/SortDropdown";
 import { ViewToggle } from "@/components/ui/ViewToggle";
 import { PriceRangeFilter } from "@/components/ui/PriceRangeFilter";
-import { Filter, ArrowLeft, Minus, Plus, Loader2 } from "@/components/icons";
 import { BackButton } from "@/components/ui/BackButton";
+import { Filter, ArrowLeft, Minus, Plus, Loader2 } from "@/components/icons";
 import { useDeviceType } from "@/hooks/useDeviceType";
+import type { ProductVariant } from "@shared/index";
 
 export function ProductsListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -47,15 +51,19 @@ export function ProductsListPage() {
   const { products, isLoading, error } = useProductsStore();
   const fetchProducts = useProductsStore.getState().fetchProducts;
   const addToCart = useCartStore.getState().addToCart;
-  const {
-    quickAddPanel,
-    openQuickAdd,
-    closeQuickAdd,
-    setQuickAddSize,
-    setQuickAddColor,
-    setQuickAddQuantity,
-    resetQuickAdd,
-  } = useUiStore();
+  // Quick Add Sidebar (right drawer — desktop)
+  const quickAddSidebar = useQuickAddSidebar();
+  const openQuickAddSidebar = useOpenQuickAddSidebar();
+  const closeQuickAddSidebar = useCloseQuickAddSidebar();
+  const resetSidebar = useUiStore.getState().resetSidebar;
+
+  // Quick Add BottomSheet (mobile)
+  const quickAddPanel = useQuickAddPanel();
+  const openQuickAdd = useOpenQuickAdd();
+  const setQuickAddSize = useSetQuickAddSize();
+  const setQuickAddColor = useSetQuickAddColor();
+  const setQuickAddQuantity = useSetQuickAddQuantity();
+  const resetQuickAdd = useResetQuickAdd();
   const { addToast } = useToast();
   const { categories: allCategories, fetchCategories } = useCategoriesStore();
 
@@ -91,7 +99,6 @@ export function ProductsListPage() {
     }
   }, [searchQuery, selectedCategory, setSearchParams]);
 
-  console.log(isMobile)
   const categories = useMemo(() => {
     // Count products per category
     const productCounts = new Map<string, number>();
@@ -217,8 +224,13 @@ export function ProductsListPage() {
     return () => observer.disconnect();
   }, [filteredProducts.length, visibleCount]);
 
-  const handleQuickAdd = (productId: string) => {
-    openQuickAdd(productId);
+   const handleQuickAdd = (productId: string) => {
+    // Desktop → sidebar derecho; Mobile (y tablet chica) → BottomSheet
+    if (isMobile) {
+      openQuickAdd(productId);
+    } else {
+      openQuickAddSidebar(productId);
+    }
   };
 
   // Active filters for display
@@ -398,12 +410,10 @@ export function ProductsListPage() {
                     className="animate-fade-in"
                     style={{ animationDelay: `${index * 50}ms` }}
                   >
-                    <ProductCardUnified
+                     <ProductCardUnified
                       product={product}
                       variant={effectiveVariant}
-                      onQuickAdd={handleQuickAdd}
-                      isMobile={isMobile}
-                      onOpenQuickAdd={() => openQuickAdd(product._id)}
+                      onAddToCart={handleQuickAdd}
                     />
                   </div>
                 ))}
@@ -416,15 +426,25 @@ export function ProductsListPage() {
             )}
           </section>
         </div>
-      </PageContainer>
+        </PageContainer>
 
-      {/* ══ BottomSheet de Quick Add (mobile, fuera de la card) ══ */}
-      {quickAddPanel.productId && (() => {
+      {/* ══ Cart Sidebar (derecho, desktop) ══ */}
+      <Drawer
+        isOpen={!!products?.some((p) => p._id === quickAddSidebar.productId)}
+        onClose={resetSidebar}
+        position="right"
+        hideOnDesktop={false}
+        title=""
+      >
+        <CartSidebar products={products} />
+      </Drawer>
+
+      {/* ══ BottomSheet de Quick Add (mobile) ══ */}
+      {quickAddPanel.productId && isMobile && (() => {
         const product = products?.find((p) => p._id === quickAddPanel.productId);
         if (!product) return null;
 
         const variants = (product.variants as ProductVariant[]) || [];
-        // Solo tallas con al menos 1 color
         const activeVariants = variants.filter(v => (v.colorStock || []).length > 0);
 
         const getColorStockMap = (size: string): Record<string, number> => {
@@ -440,7 +460,6 @@ export function ProductsListPage() {
           ? Object.keys(getColorStockMap(quickAddPanel.selectedSize))
           : [];
 
-        // Stock límite de cantidad
         const getMaxStock = () => {
           if (!quickAddPanel.selectedSize) return 0;
           const map = getColorStockMap(quickAddPanel.selectedSize);
@@ -450,7 +469,6 @@ export function ProductsListPage() {
 
         const maxStock = getMaxStock();
 
-        // Validar al agregar
         const canAddToCart = (): string | null => {
           if (!quickAddPanel.selectedSize) return 'Seleccioná una talla';
           if (availableColors.length > 1 && !quickAddPanel.selectedColor) return 'Seleccioná un color';
@@ -465,7 +483,6 @@ export function ProductsListPage() {
             addToast({ type: 'error', title: error });
             return;
           }
-          // Auto-asignar color si hay solo 1
           const finalColor = quickAddPanel.selectedColor
             || (availableColors.length === 1 ? availableColors[0] : undefined);
 
@@ -484,7 +501,6 @@ export function ProductsListPage() {
             onClose={resetQuickAdd}
             title={
               <div className="flex items-center gap-3 min-w-0">
-                {/* Mini thumbnail del producto */}
                 <div className="w-10 h-10 rounded-lg overflow-hidden bg-surface-container flex-shrink-0 border border-outline-variant/30">
                   {product.images?.[0] ? (
                     <img
@@ -508,12 +524,9 @@ export function ProductsListPage() {
             closable
           >
             <div className="space-y-4 py-2">
-              {/* ── Tallas ── */}
               {activeVariants.length > 0 && (
                 <div>
-                  <p className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant mb-2">
-                    Talla
-                  </p>
+                  <p className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant mb-2">Talla</p>
                   <div className="flex flex-wrap gap-1.5">
                     {activeVariants.map((v) => {
                       const totalStock = (v.colorStock || []).reduce((s, c) => s + (c.stock || 0), 0);
@@ -533,8 +546,8 @@ export function ProductsListPage() {
                             ${isActive
                               ? "bg-primary text-on-primary border-primary"
                               : isOut
-                              ? "border-outline-variant/30 text-on-surface-variant/40 opacity-50 cursor-not-allowed line-through"
-                              : "border-outline-variant active:scale-95"
+                                ? "border-outline-variant/30 text-on-surface-variant/40 opacity-50 cursor-not-allowed line-through"
+                                : "border-outline-variant active:scale-95"
                             }
                           `}
                         >
@@ -546,12 +559,9 @@ export function ProductsListPage() {
                 </div>
               )}
 
-              {/* ── Colores (por talla seleccionada) ── */}
               {quickAddPanel.selectedSize && availableColors.length > 0 && (
                 <div>
-                  <p className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant mb-2">
-                    Color
-                  </p>
+                  <p className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant mb-2">Color</p>
                   <div className="flex flex-wrap gap-2">
                     {availableColors.map((color) => {
                       const cs = getColorStockMap(quickAddPanel.selectedSize)[color] ?? 0;
@@ -567,8 +577,8 @@ export function ProductsListPage() {
                             ${isActive
                               ? "border-primary scale-110 ring-2 ring-primary/25"
                               : isOut
-                              ? "border-outline-variant/25 opacity-35 cursor-not-allowed grayscale"
-                              : "border-outline-variant active:scale-90"
+                                ? "border-outline-variant/25 opacity-35 cursor-not-allowed grayscale"
+                                : "border-outline-variant active:scale-90"
                             }
                           `}
                           style={{ backgroundColor: color }}
@@ -585,7 +595,6 @@ export function ProductsListPage() {
                 </div>
               )}
 
-              {/* ── Cantidad + Botón ── */}
               <div className="flex items-center justify-between pt-2 border-t border-outline-variant/20">
                 <div className="flex items-center gap-2">
                   <button
@@ -595,9 +604,7 @@ export function ProductsListPage() {
                   >
                     <Minus className="w-4 h-4" />
                   </button>
-                  <span className="text-sm font-bold w-6 text-center tabular-nums">
-                    {quickAddPanel.quantity}
-                  </span>
+                  <span className="text-sm font-bold w-6 text-center tabular-nums">{quickAddPanel.quantity}</span>
                   <button
                     onClick={() => setQuickAddQuantity(Math.min(maxStock || 99, quickAddPanel.quantity + 1))}
                     disabled={quickAddPanel.quantity >= (maxStock || 99)}

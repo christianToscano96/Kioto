@@ -14,8 +14,8 @@ interface ProductCardListProps {
   availableStock: number;
   hasSizes: boolean;
   handleAddToCart: (size: string, color: string, qty: number, onSuccess?: () => void) => void;
-  onQuickAdd?: (productId: string, options?: { size?: string; color?: string; quantity?: number }) => void;
-  onOpenQuickAdd?: () => void;
+  /** Se dispara al tocar el botón de carrito — la página decide si abre sidebar o bottom sheet */
+  onAddToCart: (productId: string) => void;
 }
 
 export function ProductCardList({
@@ -28,8 +28,7 @@ export function ProductCardList({
   availableStock,
   hasSizes,
   handleAddToCart,
-  onQuickAdd,
-  onOpenQuickAdd,
+  onAddToCart,
 }: ProductCardListProps) {
   return (
     <div className="group bg-surface-container-low rounded-xl overflow-hidden border border-outline-variant/30 hover:shadow-xl hover:border-outline-variant/60 transition-all duration-300">
@@ -165,13 +164,9 @@ export function ProductCardList({
               </button>
 
               {/* CTA principal — agregar */}
-              <button
+               <button
                 onClick={() => {
-                  if (onOpenQuickAdd) {
-                    onOpenQuickAdd();
-                  } else {
-                    window.location.href = `/products/${product._id}`;
-                  }
+                  onAddToCart(product._id);
                 }}
                 disabled={totalStock === 0}
                 className="bg-primary text-on-primary font-label text-xs uppercase tracking-widest px-5 py-2.5 sm:px-6 sm:py-3 rounded-lg hover:bg-primary/90 active:scale-[0.98] transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-primary"

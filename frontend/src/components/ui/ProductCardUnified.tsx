@@ -10,20 +10,15 @@ interface ProductCardUnifiedProps {
   product: Product;
   variant?: "grid" | "list" | "compact";
   showQuickActions?: boolean;
-  isMobile?: boolean;
-  /** Callback que se dispara al tocar el botón de bolsa (agregar rápido directo). */
-  onQuickAdd?: (productId: string, options?: { size?: string; color?: string; quantity?: number }) => void;
-  /** Callback que se dispara al tocar el botón de bolsa en mobile — abre el panel exterior. */
-  onOpenQuickAdd?: () => void;
+  /** Se dispara al tocar el botón de carrito — la página decide si abre sidebar o bottom sheet */
+  onAddToCart: (productId: string) => void;
 }
 
 export function ProductCardUnified({
   product,
   variant = "grid",
   showQuickActions = true,
-  isMobile = false,
-  onQuickAdd,
-  onOpenQuickAdd,
+  onAddToCart,
 }: ProductCardUnifiedProps) {
   const addToCart = useCartStore((state) => state.addToCart);
   const { addToast } = useToast();
@@ -79,8 +74,7 @@ export function ProductCardUnified({
         availableStock={totalStock}
         handleAddToCart={handleAddToCart}
         hasSizes={hasSizes}
-        onQuickAdd={onQuickAdd}
-        onOpenQuickAdd={onOpenQuickAdd}
+        onAddToCart={onAddToCart}
       />
     );
   }
@@ -90,7 +84,6 @@ export function ProductCardUnified({
     <ProductCardGrid
       product={product}
       showQuickActions={showQuickActions}
-      isMobile={isMobile}
       currentImageIndex={currentImageIndex}
       imageError={imageError}
       setCurrentImageIndex={setCurrentImageIndex}
@@ -104,8 +97,7 @@ export function ProductCardUnified({
       availableStock={totalStock}
       handleAddToCart={handleAddToCart}
       hasSizes={hasSizes}
-      onQuickAdd={onQuickAdd}
-      onOpenQuickAdd={onOpenQuickAdd}
+      onAddToCart={onAddToCart}
     />
   );
 }

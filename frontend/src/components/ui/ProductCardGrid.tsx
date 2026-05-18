@@ -1,5 +1,6 @@
 import { useState, memo } from "react";
 import { Link } from "react-router-dom";
+import { useDeviceType } from "@/hooks/useDeviceType";
 import { OptimizedImage } from "./OptimizedImage";
 import { useProductStock } from "../../hooks/useProductStock";
 import {  Eye, ShoppingCart, ChevronLeft, ChevronRight } from '@/components/icons';
@@ -8,7 +9,6 @@ import type { Product } from "../../../../shared/src";
 interface ProductCardGridProps {
   product: Product;
   showQuickActions?: boolean;
-  isMobile?: boolean;
   currentImageIndex: number;
   imageError: boolean;
   setCurrentImageIndex: (idx: number) => void;
@@ -22,14 +22,13 @@ interface ProductCardGridProps {
   availableStock: number;
   handleAddToCart: (size: string, color: string, qty: number, onSuccess?: () => void) => void;
   hasSizes: boolean;
-  onQuickAdd?: (productId: string, options?: { size?: string; color?: string; quantity?: number }) => void;
-  onOpenQuickAdd?: () => void;
+  /** Se dispara al tocar el botón de carrito — la página decide si abre sidebar o bottom sheet */
+  onAddToCart: (productId: string) => void;
 }
 
 export function ProductCardGrid({
   product,
   showQuickActions = true,
-  isMobile = false,
   currentImageIndex,
   imageError,
   setCurrentImageIndex,
@@ -43,9 +42,10 @@ export function ProductCardGrid({
   availableStock,
   handleAddToCart,
   hasSizes,
-  onQuickAdd,
-  onOpenQuickAdd,
+  onAddToCart,
 }: ProductCardGridProps) {
+  const { isMobile } = useDeviceType();
+
   const nextImage = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -145,27 +145,18 @@ export function ProductCardGrid({
                 <Eye className="text-[11px] sm:text-base" />
               </button>
 
-              {isMobile && onOpenQuickAdd ? (
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onOpenQuickAdd();
-                  }}
-                  className="w-8 h-8 sm:w-10 sm:h-10 bg-white/95 rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-all"
-                  title="Agregar al carrito"
-                >
-                  <ShoppingCart className="text-[11px] sm:text-base" />
-                </button>
-              ) : (
-                <button
-                  onClick={() => { window.location.href = `/products/${product._id}`; }}
-                  className="w-8 h-8 sm:w-10 sm:h-10 bg-white/95 rounded-full flex items-center justify-center shadow-lg active:scale-90 sm:hover:bg-surface-container transition-all"
-                  title="Agregar al carrito"
-                >
-                  <ShoppingCart className="text-[11px] sm:text-base" />
-                </button>
-              )}
+              {/* Botón de carrito — mobile abre panel exterior, desktop navega a detalle */}
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onAddToCart(product._id);
+                }}
+                className="w-8 h-8 sm:w-10 sm:h-10 bg-white/95 rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-all"
+                title="Agregar al carrito"
+              >
+                <ShoppingCart className="text-[11px] sm:text-base" />
+              </button>
             </div>
           )}
         </div>
@@ -189,6 +180,5 @@ export const ProductCardGridMemo = memo(ProductCardGrid, (prev, next) =>
   prev.product.price === next.product.price &&
   prev.product.name === next.product.name &&
   prev.product.images?.join() === next.product.images?.join() &&
-  prev.showQuickActions === next.showQuickActions &&
-  prev.isMobile === next.isMobile
+  prev.showQuickActions === next.showQuickActions
 );
