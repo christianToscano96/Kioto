@@ -2,7 +2,7 @@ import { useState, memo } from "react";
 import { Link } from "react-router-dom";
 import { OptimizedImage } from "./OptimizedImage";
 import { useProductStock } from "../../hooks/useProductStock";
-import { Minus, Plus, Eye, ShoppingBag, ChevronLeft, ChevronRight } from '@/components/icons';
+import {  Eye, ShoppingCart, ChevronLeft, ChevronRight } from '@/components/icons';
 import type { Product } from "../../../../shared/src";
 
 interface ProductCardGridProps {
@@ -155,7 +155,7 @@ export function ProductCardGrid({
                   className="w-8 h-8 sm:w-10 sm:h-10 bg-white/95 rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-all"
                   title="Agregar al carrito"
                 >
-                  <ShoppingBag className="text-[11px] sm:text-base" />
+                  <ShoppingCart className="text-[11px] sm:text-base" />
                 </button>
               ) : (
                 <button
@@ -163,7 +163,7 @@ export function ProductCardGrid({
                   className="w-8 h-8 sm:w-10 sm:h-10 bg-white/95 rounded-full flex items-center justify-center shadow-lg active:scale-90 sm:hover:bg-surface-container transition-all"
                   title="Agregar al carrito"
                 >
-                  <ShoppingBag className="text-[11px] sm:text-base" />
+                  <ShoppingCart className="text-[11px] sm:text-base" />
                 </button>
               )}
             </div>

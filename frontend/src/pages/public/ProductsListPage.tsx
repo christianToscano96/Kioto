@@ -23,6 +23,7 @@ import { ViewToggle } from "@/components/ui/ViewToggle";
 import { PriceRangeFilter } from "@/components/ui/PriceRangeFilter";
 import { Filter, ArrowLeft, Minus, Plus, Loader2 } from "@/components/icons";
 import { BackButton } from "@/components/ui/BackButton";
+import { useDeviceType } from "@/hooks/useDeviceType";
 
 export function ProductsListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -37,7 +38,7 @@ export function ProductsListPage() {
   const [filterColor, setFilterColor] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortOption>("relevance");
   const [view, setView] = useState<"grid" | "list">("grid");
-  const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth < 640 : false);
+  const { isMobile } = useDeviceType();
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 60000]);
   const [visibleCount, setVisibleCount] = useState(12);
   const [availableColors, setAvailableColors] = useState<string[]>([]);
@@ -62,20 +63,6 @@ export function ProductsListPage() {
   useEffect(() => {
     fetchCategories();
     productsApi.getColors().then(setAvailableColors).catch(console.error);
-  }, [fetchCategories]);
-
-  // Detectar cambios de tamaño de ventana para forzar vista lista en móvil
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 640);
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  // Fetch categories on mount
-  useEffect(() => {
-    fetchCategories();
   }, [fetchCategories]);
 
   // Price bounds
@@ -104,7 +91,7 @@ export function ProductsListPage() {
     }
   }, [searchQuery, selectedCategory, setSearchParams]);
 
-  // Build categories from store - all categories with product counts
+  console.log(isMobile)
   const categories = useMemo(() => {
     // Count products per category
     const productCounts = new Map<string, number>();
