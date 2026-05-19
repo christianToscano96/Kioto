@@ -33,7 +33,11 @@ export function getAvailableColors(
 export function getMaxStock(
   variants: ProductVariant[],
   selection: Pick<QuickAddSelection, "selectedSize" | "selectedColor">,
+  productStock?: number,
 ): number {
+  // Sin variantes: usar el stock a nivel producto
+  if (variants.length === 0) return productStock ?? 0;
+
   if (!selection.selectedSize) return 0;
 
   const colorStockMap = getColorStockMap(variants, selection.selectedSize);
@@ -45,7 +49,15 @@ export function getMaxStock(
 export function getQuickAddError(
   variants: ProductVariant[],
   selection: QuickAddSelection,
+  productStock?: number,
 ): string | null {
+  // Sin variantes: solo validar cantidad contra stock del producto
+  if (variants.length === 0) {
+    if (productStock === 0) return "Sin stock disponible";
+    if (selection.quantity > (productStock ?? 0)) return "Stock insuficiente";
+    return null;
+  }
+
   const availableColors = getAvailableColors(variants, selection.selectedSize);
   const maxStock = getMaxStock(variants, selection);
 

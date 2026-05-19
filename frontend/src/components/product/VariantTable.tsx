@@ -10,9 +10,9 @@ export const PRESET_SIZES = {
 } as const;
 
 export const PRESET_COLORS = [
-  '#000000', '#FFFFFF', '#99452c', '#2e6b4f', '#c27e41',
+  '#000000', '#FFFFFF',  '#2e6b4f',
   '#6b7280', '#dc2626', '#2563eb', '#7c3aed', '#ca8a04',
-  '#059669', '#db2777', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444',
+  '#059669', '#db2777', '#f59e0b', '#10b981', '#8b5cf6', 
 ];
 
 export type SizeType = keyof typeof PRESET_SIZES;

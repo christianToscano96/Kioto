@@ -51,21 +51,24 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
     () => getAvailableColors(variants, state.selectedSize),
     [variants, state.selectedSize],
   );
-  const maxStock = useMemo(() => getMaxStock(variants, state), [variants, state]);
+  const maxStock = useMemo(() => getMaxStock(variants, state, product?.stock), [variants, state, product?.stock]);
+  const hasVariants = variants.length > 0;
 
   const handleSubmit = useCallback(async () => {
-    const error = getQuickAddError(variants, state);
+    const error = getQuickAddError(variants, state, product?.stock);
     if (error) {
       addToast({ type: "error", title: error });
       return;
     }
 
-    const finalColor =
-      state.selectedColor ||
-      (availableColors.length === 1 ? availableColors[0] : undefined);
+    // Sin variantes: no enviar size/color
+    const finalSize = hasVariants ? state.selectedSize : undefined;
+    const finalColor = hasVariants && state.selectedColor
+      ? state.selectedColor
+      : (availableColors.length === 1 ? availableColors[0] : undefined);
 
     try {
-      await addToCart(product!, state.quantity, state.selectedSize, finalColor || undefined);
+      await addToCart(product!, state.quantity, finalSize, finalColor);
       addToast({
         type: "success",
         title: "¡Agregado!",
@@ -76,7 +79,7 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
     } catch {
       addToast({ type: "error", title: "Error", message: "No se pudo agregar" });
     }
-  }, [variants, state, availableColors, addToCart, product, addToast, reset]);
+  }, [variants, state, availableColors, addToCart, product, addToast, reset, hasVariants]);
 
   const handleClose = useCallback(() => {
     reset();
@@ -220,10 +223,13 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
           </div>
         )}
 
+        {/* Cantidad + Botón */}
         <div className="flex items-center justify-between pt-2 border-t border-outline-variant/20">
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setQuantity(Math.max(1, state.quantity - 1))}
+              onClick={() =>
+                setQuantity(Math.max(1, state.quantity - 1))
+              }
               disabled={state.quantity <= 1}
               className="w-9 h-9 rounded-lg border border-outline-variant flex items-center justify-center disabled:opacity-40 active:scale-95 transition-all"
             >
@@ -231,7 +237,11 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
             </button>
             <span className="text-sm font-bold w-6 text-center tabular-nums">{state.quantity}</span>
             <button
-              onClick={() => setQuantity(Math.min(maxStock || 99, state.quantity + 1))}
+              onClick={() =>
+                setQuantity(
+                  Math.min(maxStock || 99, state.quantity + 1),
+                )
+              }
               disabled={state.quantity >= (maxStock || 99)}
               className="w-9 h-9 rounded-lg border border-outline-variant flex items-center justify-center disabled:opacity-40 active:scale-95 transition-all"
             >
@@ -239,9 +249,21 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
             </button>
           </div>
 
+          {!hasVariants && product?.stock !== undefined && (
+            <p className="text-xs text-on-surface-variant">
+              Stock: {product.stock}
+            </p>
+          )}
+
+          {hasVariants && (
+            <p className="text-xs text-on-surface-variant">
+              Stock: {maxStock}
+            </p>
+          )}
+
           <button
             onClick={handleSubmit}
-            disabled={!!getQuickAddError(variants, state)}
+            disabled={!!getQuickAddError(variants, state, product?.stock)}
             className="bg-primary text-on-primary font-label text-xs uppercase tracking-wider px-5 py-2.5 rounded-lg disabled:opacity-40 active:scale-95 transition-all"
           >
             Agregar al carrito

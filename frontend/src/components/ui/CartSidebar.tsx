@@ -59,24 +59,26 @@ export function CartSidebar({ products }: CartSidebarProps) {
     () => getAvailableColors(variants, state.selectedSize),
     [variants, state.selectedSize],
   );
-
-  const maxStock = useMemo(() => getMaxStock(variants, state), [variants, state]);
+  const maxStock = useMemo(() => getMaxStock(variants, state, product?.stock), [variants, state, product?.stock]);
+  const hasVariants = variants.length > 0;
 
   const handleSubmit = useCallback(async () => {
-    const error = getQuickAddError(variants, state);
+    const error = getQuickAddError(variants, state, product?.stock);
     if (error) {
       addToast({ type: "error", title: error });
       return;
     }
-    const finalColor =
-      state.selectedColor ||
-      (availableColors.length === 1 ? availableColors[0] : undefined);
+    // Sin variantes: no enviar size/color
+    const finalSize = hasVariants ? state.selectedSize : undefined;
+    const finalColor = hasVariants && state.selectedColor
+      ? state.selectedColor
+      : (availableColors.length === 1 ? availableColors[0] : undefined);
 
     try {
       await addToCart(
         product!,
         state.quantity,
-        state.selectedSize,
+        finalSize,
         finalColor,
       );
       addToast({
@@ -93,7 +95,7 @@ export function CartSidebar({ products }: CartSidebarProps) {
         message: "No se pudo agregar al carrito",
       });
     }
-  }, [variants, state, availableColors, addToCart, product, addToast, resetSidebar]);
+  }, [variants, state, availableColors, addToCart, product, addToast, resetSidebar, hasVariants]);
 
   const handleClose = useCallback(() => {
     close();
@@ -107,7 +109,7 @@ export function CartSidebar({ products }: CartSidebarProps) {
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-outline-variant/20 min-h-[56px]">
         <div className="flex items-center gap-3 min-w-0">
-         
+          
           <div className="min-w-0">
             <p className="truncate text-xl font-medium">{product.name}</p>
             <p className="text-sm text-on-surface-variant font-label">
@@ -115,7 +117,7 @@ export function CartSidebar({ products }: CartSidebarProps) {
             </p>
           </div>
         </div>
-     
+      
       </div>
 
       {/* Contenido */}
@@ -272,13 +274,25 @@ export function CartSidebar({ products }: CartSidebarProps) {
             </button>
           </div>
 
-          <button
-            onClick={handleSubmit}
-            disabled={!!getQuickAddError(variants, state)}
-            className="bg-primary text-on-primary font-label text-xs uppercase tracking-wider px-5 py-2.5 rounded-lg disabled:opacity-40 active:scale-95 transition-all"
-          >
-            Agregar
-          </button>
+            {!hasVariants && product?.stock !== undefined && (
+              <p className="text-xs text-on-surface-variant">
+                Stock: {product.stock}
+              </p>
+            )}
+
+            {hasVariants && (
+              <p className="text-xs text-on-surface-variant">
+                Stock: {maxStock}
+              </p>
+            )}
+
+            <button
+              onClick={handleSubmit}
+              disabled={!!getQuickAddError(variants, state, product?.stock)}
+              className="bg-primary text-on-primary font-label text-xs uppercase tracking-wider px-5 py-2.5 rounded-lg disabled:opacity-40 active:scale-95 transition-all"
+            >
+              Agregar
+            </button>
         </div>
       </div>
     </div>
