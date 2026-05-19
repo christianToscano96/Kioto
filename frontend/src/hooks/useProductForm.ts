@@ -1,29 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { Product } from '@shared/index';
 
-const PRESET_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
-const BOTTOM_SIZES = ['28', '30', '32', '34', '36', '38', '40', '42'];
-const FOOTWEAR_SIZES = ['5', '6', '7', '8', '9', '10', '11', '12'];
-
-export type SizeType = 'tops' | 'bottoms' | 'footwear' | 'custom';
-
-const SIZE_PRESETS: Record<SizeType, string[]> = {
-  tops: PRESET_SIZES,
-  bottoms: BOTTOM_SIZES,
-  footwear: FOOTWEAR_SIZES,
-  custom: [],
-};
-
-interface ColorStockEntry {
-  name: string;
-  stock: number;
-}
-
-interface SizeVariantEntry {
-  colorStock: ColorStockEntry[];
-  totalStock: number;
-}
-
+// ─── Form data — solo campos básicos ───
 interface ProductFormData {
   name: string;
   price: string;
@@ -33,50 +11,41 @@ interface ProductFormData {
   published: boolean;
   materials: string;
   hasSizes: boolean;
-  sizeType: SizeType;
-  sizeStock: Record<string, SizeVariantEntry>;
-  sizes: string[];
-  colors: string[];
   category: string;
 }
 
 interface UseProductFormProps {
   product?: Product | null;
   isEdit: boolean;
+  hasSizes?: boolean; // opcional, controlado por el componente exterior
 }
 
-export function useProductForm({ product, isEdit }: UseProductFormProps) {
-  const [formData, setFormData] = useState<ProductFormData>({
-    name: '',
-    price: '',
-    images: [],
-    description: '',
-    stock: '',
-    published: false,
-    materials: '',
-    hasSizes: false,
-    sizeType: 'tops',
-    sizeStock: {},
-    sizes: [],
-    colors: [],
-    category: '',
-  });
+const DEFAULT_FORM: ProductFormData = {
+  name: '',
+  price: '',
+  images: [],
+  description: '',
+  stock: '',
+  published: false,
+  materials: '',
+  hasSizes: false,
+  category: '',
+};
 
+export function useProductForm({ product, isEdit, hasSizes: externalHasSizes }: UseProductFormProps) {
+  const [formData, setFormData] = useState<ProductFormData>(DEFAULT_FORM);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // ─── Sincronizar hasSizes externo (cuando el usuario tilda el checkbox) ───
+  useEffect(() => {
+    if (externalHasSizes !== undefined && formData.hasSizes !== externalHasSizes) {
+      setFormData((prev) => ({ ...prev, hasSizes: externalHasSizes }));
+    }
+  }, [externalHasSizes]);
+
+  // ─── Cargar datos al editar ───
   useEffect(() => {
     if (isEdit && product) {
-      const hasSizes = product.variants && product.variants.length > 0;
-      let sizeStock: Record<string, SizeVariantEntry> = {};
-
-      if (hasSizes && product.variants) {
-        product.variants.forEach((v: any) => {
-          const colorStock = v.colorStock || [];
-          const totalStock = colorStock.reduce((sum: number, c: any) => sum + (c.stock || 0), 0);
-          sizeStock[v.size] = { colorStock, totalStock };
-        });
-      }
-
       setFormData({
         name: product.name || '',
         price: product.price?.toString() || '',
@@ -85,175 +54,83 @@ export function useProductForm({ product, isEdit }: UseProductFormProps) {
         stock: product.stock?.toString() || '',
         published: product.published || false,
         materials: product.materials || '',
-        hasSizes: hasSizes || false,
-        sizeType: 'tops',
-        sizeStock,
-        sizes: product.sizes || [],
-        colors: product.colors || [],
+        hasSizes: !!(product.variants && product.variants.length > 0),
         category: typeof product.category === 'object' ? product.category?._id : product.category || '',
       });
+    } else {
+      setFormData(DEFAULT_FORM);
     }
   }, [isEdit, product]);
 
-  const validate = (): boolean => {
+  // ─── Validación ───
+  const validate = useCallback((): boolean => {
     const newErrors: Record<string, string> = {};
 
-    if (!formData.name.trim()) {
-      newErrors.name = 'El nombre es requerido';
-    }
-    if (!formData.price || isNaN(Number(formData.price)) || Number(formData.price) <= 0) {
-      newErrors.price = 'Se requiere un precio válido';
-    }
-    if (!formData.description.trim()) {
-      newErrors.description = 'La descripción es requerida';
-    }
-    if (!formData.hasSizes && (formData.stock === '' || isNaN(Number(formData.stock)) || Number(formData.stock) < 0)) {
-      newErrors.stock = 'Se requiere una cantidad válida';
-    }
+    if (!formData.name.trim())                newErrors.name = 'El nombre es requerido';
+    if (!formData.price || isNaN(Number(formData.price)) || Number(formData.price) <= 0)
+                                              newErrors.price = 'Se requiere un precio válido';
+    if (!formData.description.trim())         newErrors.description = 'La descripción es requerida';
+    if (!formData.hasSizes && (formData.stock === '' || isNaN(Number(formData.stock)) || Number(formData.stock) < 0))
+                                              newErrors.stock = 'Se requiere una cantidad válida';
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  };
+  }, [formData]);
 
-  const toggleSize = (size: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      sizes: prev.sizes.includes(size)
-        ? prev.sizes.filter((s) => s !== size)
-        : [...prev.sizes, size],
-    }));
-  };
+  // ─── SetHasSizes (para sincronizar con el checkbox del componente) ───
+  const setHasSizes = useCallback((v: boolean) => {
+    setFormData((prev) => ({ ...prev, hasSizes: v }));
+  }, []);
 
-  const removeColor = (color: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      colors: prev.colors.filter((c) => c !== color),
-    }));
-  };
+  // ─── Image helpers ───
+  const addImage = useCallback(() => {
+    setFormData((prev) => ({ ...prev, images: [...prev.images, ''] }));
+  }, []);
 
-  // — Variant helpers —
-  const toggleSizeVariant = (size: string) => {
+  const updateImage = useCallback((index: number, url: string) => {
     setFormData((prev) => {
-      const next = { ...prev };
-      if (next.sizeStock[size]) {
-        // desactivar
-        const { [size]: _, ...rest } = next.sizeStock;
-        next.sizeStock = rest;
-      } else {
-        // activar con colorStock vacío
-        next.sizeStock = { ...next.sizeStock, [size]: { colorStock: [], totalStock: 0 } };
-      }
-      return next;
+      const next = [...prev.images];
+      next[index] = url;
+      return { ...prev, images: next };
     });
-  };
+  }, []);
 
-  const addColorToVariant = (size: string, colorName: string) => {
-    setFormData((prev) => {
-      const variant = prev.sizeStock[size];
-      if (!variant) return prev;
-      if (variant.colorStock.some((c) => c.name === colorName)) return prev;
-      const colorStock = [...variant.colorStock, { name: colorName, stock: 0 }];
-      const totalStock = colorStock.reduce((sum, c) => sum + c.stock, 0);
-      return {
-        ...prev,
-        sizeStock: { ...prev.sizeStock, [size]: { colorStock, totalStock } },
-      };
-    });
-  };
+  const removeImage = useCallback((index: number) => {
+    setFormData((prev) => ({ ...prev, images: prev.images.filter((_, i) => i !== index) }));
+  }, []);
 
-  const removeColorFromVariant = (size: string, colorName: string) => {
-    setFormData((prev) => {
-      const variant = prev.sizeStock[size];
-      if (!variant) return prev;
-      const colorStock = variant.colorStock.filter((c) => c.name !== colorName);
-      const totalStock = colorStock.reduce((sum, c) => sum + c.stock, 0);
-      return {
-        ...prev,
-        sizeStock: { ...prev.sizeStock, [size]: { colorStock, totalStock } },
-      };
-    });
-  };
+  // ─── Build submit payload ───
+  const getSubmitData = useCallback(() => {
+    const base: Record<string, any> = {
+      name:         formData.name,
+      price:        Number(formData.price),
+      images:       formData.images.filter(Boolean),
+      description:  formData.description,
+      stock:        formData.hasSizes ? 0 : Number(formData.stock),
+      published:    formData.published,
+      materials:    formData.materials,
+      category:     formData.category || undefined,
+    };
 
-  const updateColorStock = (size: string, colorName: string, stock: number) => {
-    setFormData((prev) => {
-      const variant = prev.sizeStock[size];
-      if (!variant) return prev;
-      const colorStock = variant.colorStock.map((c) =>
-        c.name === colorName ? { ...c, stock } : c
-      );
-      const totalStock = colorStock.reduce((sum, c) => sum + c.stock, 0);
-      return {
-        ...prev,
-        sizeStock: { ...prev.sizeStock, [size]: { colorStock, totalStock } },
-      };
-    });
-  };
-
-  const addImage = () => {
-    setFormData(prev => ({ ...prev, images: [...prev.images, ''] }));
-  };
-
-  const updateImage = (index: number, url: string) => {
-    setFormData(prev => {
-      const newImages = [...prev.images];
-      newImages[index] = url;
-      return { ...prev, images: newImages };
-    });
-  };
-
-  const removeImage = (index: number) => {
-    setFormData(prev => ({
-      ...prev,
-      images: prev.images.filter((_, i) => i !== index)
-    }));
-  };
-
-  const getSubmitData = () => {
-    const base = {
-      name: formData.name,
-      price: Number(formData.price),
-      images: formData.images.filter(Boolean),
-      description: formData.description,
-      stock: formData.hasSizes ? 0 : Number(formData.stock),
-      published: formData.published,
-      materials: formData.materials,
-      category: formData.category || undefined,
-    } as Record<string, any>;
-
-    if (formData.hasSizes) {
-      base.variants = Object.entries(formData.sizeStock)
-        .filter(([, data]) => data.colorStock.length > 0)
-        .map(([size, data]) => ({
-          size,
-          colorStock: data.colorStock,
-          stock: data.totalStock,
-        }));
-      // sizes y colors NO se envían — se manejan exclusivamente por variants
-    } else {
-      base.sizes = formData.sizes;
-      base.colors = formData.colors;
+    if (!formData.hasSizes) {
+      base.variants = [];
     }
 
     return base;
-  };
+  }, [formData]);
 
   return {
     formData,
     setFormData,
+    setHasSizes,
     errors,
     validate,
-    toggleSize,
-    removeColor,
-    // variant helpers
-    toggleSizeVariant,
-    addColorToVariant,
-    removeColorFromVariant,
-    updateColorStock,
-    // image helpers
     addImage,
-    updateImage,
     removeImage,
     getSubmitData,
-    SIZE_PRESETS,
+    hasSizes: formData.hasSizes,
   };
 }
+
+// Estado base exportado para uso externo (tests, etc.)
+export const DEFAULT_FORM_DATA = DEFAULT_FORM;

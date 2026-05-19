@@ -2,23 +2,9 @@ import { Router, Request, Response } from 'express';
 import Product from '../models/Product';
 import { authenticate, adminOnly } from '../middleware/auth';
 import { validate } from '../middleware/validation';
-import { createProductSchema, updateProductSchema } from '../schemas/product';
+import { createProductSchema, updateProductSchema, normalizeVariantStock } from '../schemas/product';
 
 const router = Router();
-
-const normalizeVariantStock = (variants: any[] = []) => {
-  let totalStock = 0;
-  const normalizedVariants = variants.map((variant) => {
-    const stock = (variant.colorStock || []).reduce(
-      (sum: number, color: any) => sum + (color.stock || 0),
-      0,
-    );
-    totalStock += stock;
-    return { ...variant, stock };
-  });
-
-  return { variants: normalizedVariants, totalStock };
-};
 
 // Public compatibility endpoint
 // GET /api/products/public - List published products
@@ -80,6 +66,7 @@ router.get('/', async (req: Request, res: Response) => {
 // POST /api/products - Create product (admin only)
 router.post('/', validate(createProductSchema), async (req: Request, res: Response) => {
   try {
+    console.log('[POST /products] body:', JSON.stringify(req.body, null, 2));
     const { name, price, images, description, stock, published, materials, sizes, colors, category, variants } = req.body;
 
     const hasVariants = variants && variants.length > 0;

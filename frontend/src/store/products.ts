@@ -98,30 +98,32 @@ let filtered = products || [];
     },
 
    createProduct: async (data) => {
-     set({ isLoading: true, error: null });
-     try {
-       await adminProductsApi.create(data);
-       await get().fetchAdminProducts();
-     } catch (error) {
-       const message = error instanceof Error ? error.message : 'Failed to create product';
-       set({ error: message });
-     } finally {
-       set({ isLoading: false });
-     }
-   },
+      set({ isLoading: true, error: null });
+      try {
+        await adminProductsApi.create(data);
+        await get().fetchAdminProducts();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create product';
+        set({ error: message });
+        throw error; // ← re-lanza para que el componente lo capture
+      } finally {
+        set({ isLoading: false });
+      }
+    },
 
-   updateProduct: async (id, data) => {
-     set({ isLoading: true, error: null });
-     try {
-       await adminProductsApi.update(id, data);
-       await get().fetchAdminProducts();
-     } catch (error) {
-       const message = error instanceof Error ? error.message : 'Failed to update product';
-       set({ error: message });
-     } finally {
-       set({ isLoading: false });
-     }
-   },
+    updateProduct: async (id, data) => {
+      set({ isLoading: true, error: null });
+      try {
+        await adminProductsApi.update(id, data);
+        await get().fetchAdminProducts();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to update product';
+        set({ error: message });
+        throw error; // ← re-lanza
+      } finally {
+        set({ isLoading: false });
+      }
+    },
 
    deleteProduct: async (id) => {
      set({ isLoading: true, error: null });

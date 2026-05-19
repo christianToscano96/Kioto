@@ -22,6 +22,14 @@ import {
 // Items per page options
 const ITEMS_PER_PAGE_OPTIONS = [10, 20, 50];
 
+// ─── Reusable stock helper — single source of truth for variant-aware total stock ───
+export function getProductTotalStock(p: any): number {
+  if (p.variants && p.variants.length > 0) {
+    return p.variants.reduce((sum: number, v: any) => sum + (v.stock || 0), 0);
+  }
+  return p.stock || 0;
+}
+
 export function ProductsList() {
   const products = useProductsStore((state) => state.products);
   const isLoading = useProductsStore((state) => state.isLoading);
@@ -57,21 +65,11 @@ export function ProductsList() {
   const filteredProducts = useMemo(() => {
     if (!products) return [];
 
-// Stock filter - use totalStock (sum of variants or base stock)
-      const getProductTotalStock = (p: any) => {
-        if (p.variants && p.variants.length > 0) {
-          return p.variants.reduce((sum: number, v: any) => sum + (v.stock || 0), 0);
-        }
-        return p.stock || 0;
-      };
+    return products.filter((product) => {
+      // Search
+      if (searchTerm && !product.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
 
-      return products.filter((product) => {
-        // Search
-        if (searchTerm && !product.name.toLowerCase().includes(searchTerm.toLowerCase())) {
-          return false;
-        }
-
-        const totalStock = getProductTotalStock(product);
+      const totalStock = getProductTotalStock(product);
 
         // Stock filter
         if (stockFilter === "low" && totalStock > 5) return false;
@@ -173,12 +171,7 @@ try {
 
   // Calculate metrics
   const totalItems = products?.length || 0;
-  const lowStock = products?.filter((p) => {
-    const totalStock = p.variants && p.variants.length > 0
-      ? p.variants.reduce((sum: number, v: any) => sum + (v.stock || 0), 0)
-      : p.stock;
-    return totalStock <= 5;
-  }).length || 0;
+  const lowStock = products?.filter((p) => getProductTotalStock(p) <= 5).length || 0;
   const categories =
     new Set(products?.map((p) => p.slug?.split("-")[0])).size || 0;
   const activeSales = products?.filter((p) => p.published).length || 0;
@@ -376,12 +369,10 @@ try {
                 <td className="px-6 py-4 text-on-surface">
                   ${product.price.toFixed(2)}
                 </td>
-<td className="px-6 py-4">
-                   {(() => {
-                     const totalStock = product.variants && product.variants.length > 0
-                       ? product.variants.reduce((sum: number, v: any) => sum + (v.stock || 0), 0)
-                       : product.stock;
-                     return (
+ <td className="px-6 py-4">
+                    {(() => {
+                      const totalStock = getProductTotalStock(product);
+                      return (
                        <Badge variant={totalStock > 5 ? "default" : totalStock === 0 ? "outline" : "destructive"}>
                          {totalStock} disponibles
                        </Badge>
