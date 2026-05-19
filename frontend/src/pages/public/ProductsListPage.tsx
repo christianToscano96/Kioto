@@ -288,7 +288,7 @@ export function ProductsListPage() {
 
       <PageContainer>
       
-            <div className="text-center mt-8">
+            <div className="text-center mt-12 mb-6">
                 <BackButton label="Volver" showLabelOnMobile={true} />
             </div>
 

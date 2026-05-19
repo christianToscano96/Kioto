@@ -30,23 +30,25 @@ export function SizeSelector({ sizes, selectedSize, onSelectSize, variants }: Si
               key={size}
               onClick={() => !isOutOfStock && onSelectSize(size)}
               disabled={isOutOfStock}
-              className={`relative px-4 py-2 border transition-all ${
+              className={`relative px-4 py-2 border transition-all rounded ${
                 selectedSize === size
                   ? "border-primary bg-primary-container text-on-primary-container"
                   : isOutOfStock
-                  ? "border-outline-variant/30 text-on-surface-variant/50 cursor-not-allowed opacity-50"
-                  : "border-outline-variant hover:border-primary"
+                  ? "border-outline-variant/20 text-on-surface-variant/40 cursor-not-allowed bg-surface-container-low/30"
+                  : "border-outline-variant hover:border-primary hover:bg-surface-container-low"
               }`}
             >
-              <span className="font-serif text-sm">{size}</span>
+              <span className={`font-serif text-sm ${isOutOfStock ? 'line-through' : ''}`}>
+                {size}
+              </span>
               {stock > 0 && stock <= 3 && (
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-terracota-500 rounded-full" 
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-verde-bosque-600 rounded-full" 
                   title={`¡Últimas ${stock} unidades!`} />
               )}
-              {stock === 0 && (
-                <span className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-[10px] uppercase tracking-wider text-error">Agotado</span>
-                </span>
+              {isOutOfStock && (
+                <div className="absolute -top-1.5 -right-1.5 bg-error text-white text-[8px] uppercase tracking-wider px-1 rounded-sm font-label">
+                  No
+                </div>
               )}
             </button>
           );
@@ -58,9 +60,25 @@ export function SizeSelector({ sizes, selectedSize, onSelectSize, variants }: Si
         <div className="mt-3 text-xs">
           {(() => {
             const stock = getSizeStock(selectedSize);
-            if (stock === 0) return <span className="text-error">Agotado</span>;
-            if (stock <= 2) return <span className="text-terracota-600">¡Últimas {stock} unidades!</span>;
-            return <span className="text-on-surface-variant">{stock} unidades disponibles</span>;
+            if (stock === 0) {
+              return (
+                <span className="text-error font-medium">
+                  Talla agotada - Selecciona otra talla
+                </span>
+              );
+            }
+            if (stock <= 2) {
+              return (
+                <span className="text-verde-bosque-600 font-medium">
+                  ¡Últimas {stock} unidades disponibles!
+                </span>
+              );
+            }
+            return (
+              <span className="text-on-surface-variant">
+                {stock} unidades disponibles
+              </span>
+            );
           })()}
         </div>
       )}

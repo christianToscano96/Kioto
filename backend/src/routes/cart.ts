@@ -107,6 +107,13 @@ router.post('/items', validate(addToCartSchema), async (req: Request, res: Respo
   } catch (error) {
     if (error instanceof Error) {
       const status = error.message.includes('not found') ? 404 : 400;
+      console.warn('addToCart rejected:', {
+        message: error.message,
+        productId: req.body.productId,
+        quantity: req.body.quantity,
+        size: req.body.size,
+        color: req.body.color,
+      });
       res.status(status).json({ error: error.message });
       return;
     }

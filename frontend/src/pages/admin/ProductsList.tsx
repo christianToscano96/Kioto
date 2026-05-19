@@ -22,7 +22,7 @@ import {
 // Items per page options
 const ITEMS_PER_PAGE_OPTIONS = [10, 20, 50];
 
-// ─── Reusable stock helper — single source of truth for variant-aware total stock ───
+
 export function getProductTotalStock(p: any): number {
   if (p.variants && p.variants.length > 0) {
     return p.variants.reduce((sum: number, v: any) => sum + (v.stock || 0), 0);

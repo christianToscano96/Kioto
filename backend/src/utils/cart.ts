@@ -2,7 +2,7 @@ import { Types } from 'mongoose';
 import Cart, { ICart } from '../models/Cart';
 import { ICartItem } from '../models/types';
 import Product from '../models/Product';
-import { assertStockAvailable } from './stock';
+import { resolveStockSelection, assertStockAvailable } from './stock';
 
 /**
  * Get or create a cart for a session
@@ -32,40 +32,49 @@ export const addToCart = async (
   size?: string,
   color?: string
 ): Promise<ICart> => {
-  // Verify product exists and stock is available
+  // Verify product exists and is published
   const product = await Product.findOne({ _id: productId, published: true });
   if (!product) {
     throw new Error('Product not found or not available');
   }
-  
-  const resolvedStock = assertStockAvailable(product, quantity, { size, color });
-  
+
   const cart = await getOrCreateCart(sessionId);
-  
-  // Check if item already exists in cart (same product + same size + same color)
+
+  // Check existing item FIRST so we know the total quantity before validating stock
   const existingItemIndex = cart.items.findIndex(
-    item => item.productId.toString() === productId.toString() && 
-    (item as any).size === (resolvedStock.size ?? "") &&
-    (item as any).color === (resolvedStock.color ?? "")
+    item => item.productId.toString() === productId.toString() &&
+      item.size === (size ?? '') &&
+      item.color === (color ?? ''),
   );
 
+  const alreadyInCart = existingItemIndex >= 0
+    ? cart.items[existingItemIndex].quantity
+    : 0;
+
+  // Resolve stock BEFORE checking total so we know availableStock for the error message
+  const resolvedStock = resolveStockSelection(product, { size, color });
+  const totalRequested = alreadyInCart + quantity;
+
+  if (resolvedStock.availableStock < totalRequested) {
+    throw new Error(
+      alreadyInCart > 0
+        ? `You already have ${alreadyInCart} in your cart — only ${resolvedStock.availableStock} in stock total. Remove from cart first to change quantity.`
+        : `Only ${resolvedStock.availableStock} available in stock`,
+    );
+  }
+
   if (existingItemIndex >= 0) {
-    // Check if total quantity exceeds stock
-    const newQuantity = cart.items[existingItemIndex].quantity + quantity;
-    if (resolvedStock.availableStock < newQuantity) {
-      throw new Error(`Total quantity would exceed available stock. Available: ${resolvedStock.availableStock}`);
-    }
-    cart.items[existingItemIndex].quantity = newQuantity;
+    cart.items[existingItemIndex].quantity = totalRequested;
   } else {
     cart.items.push({
       productId,
       quantity,
       price: product.price,
-      size: resolvedStock.size ?? "",
-      color: resolvedStock.color ?? "",
-    } as any);
+      size: resolvedStock.size ?? '',
+      color: resolvedStock.color ?? '',
+    });
   }
-  
+
   return cart.save();
 };
 

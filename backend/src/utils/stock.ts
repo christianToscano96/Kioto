@@ -14,43 +14,51 @@ interface ResolvedStockSelection {
   usesColorStock: boolean;
 }
 
+interface _ProductLean {
+  variants: Array<{ size: string; stock: number; colorStock: Array<{ name: string; stock: number }> }>;
+  stock: number;
+  _id: Types.ObjectId;
+}
+
 const normalizeOptional = (value?: string): string | undefined => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
 };
 
-// ─── cleanupEmptyEntries ─────────────────────────────────────────────────────
 
-/**
- * Remove colorStock entries with 0 stock, and remove variants that become empty.
- * The entire clean-up runs as one `aggregate()` inside MongoDB — no read/write gap —
- * so two concurrent webhook calls for the same product can never clobber each other.
- *
- * Overloads:
- *   cleanupEmptyEntries(productId)                  — clean everything
- *   cleanupEmptyEntries(productId, size)            — clean only that size variant  (drop its 0-stock colors + the variant if empty)
- *   cleanupEmptyEntries(productId, size, color)     — drop that exact color entry from that size variant
- */
+const _buildColorFilterExpr = (
+  removeByName: boolean,
+  colorName?: string,
+): Record<string, unknown> =>
+  removeByName
+    ? {
+        $filter: {
+          input: {
+            $filter: {
+              input: '$$v.colorStock',
+              as: 'c',
+              cond: { $ne: ['$$c.name', colorName!] },
+            },
+          },
+          as: 'cs',
+          cond: { $gt: ['$$cs.stock', 0] },
+        },
+      }
+    : {
+        $filter: {
+          input: '$$v.colorStock',
+          as: 'cs',
+          cond: { $gt: ['$$cs.stock', 0] },
+        },
+      };
+
 async function cleanupEmptyEntries(
   productId: Types.ObjectId | string,
   size?: string,
   color?: string,
 ): Promise<void> {
-  // ── Pipeline ────────────────────────────────────────────────────────────
-  //
-  // Stage 1 — Filter colorStock
-  //   (size + color)  → remove that color by name, then drop any 0-stock colours that slip through
-  //   (size only)     → keep only colours with stock > 0
-  //   (neither)       → keep only colours with stock > 0
-  //   When size+color are given we FIRST remove the named colour, THEN we
-  //   drop any 0-stock remnant so deleting the last colour of a variant
-  //   also removes the variant in stage 2.
-  //
-  // Stage 2 — Drop empty variants (colorStock length === 0)
-  //
-  // Stage 3 — Recompute per-variant stock = sum of remaining colorStock.stock
-  //
-  // Stage 4 — Recompute product.stock = sum of variant.stock
+  const removeByName = !!size && !!color;
+
   const [result] = await Product.aggregate([
     {
       $set: {
@@ -60,35 +68,13 @@ async function cleanupEmptyEntries(
             as: 'v',
             in: {
               size: '$$v.size',
-              colorStock:
-                size && color
-                  ? // case 1: remove the named colour, then drop 0-stock
-                    {
-                      $filter: {
-                        input: {
-                          $filter: {
-                            input: '$$v.colorStock',
-                            as: 'c',
-                            cond: { $ne: ['$$c.name', color] },
-                          },
-                        },
-                        as: 'cs',
-                        cond: { $gt: ['$$cs.stock', 0] },
-                      },
-                    }
-                  : // case 2 & 3: keep only colours with stock > 0
-                    {
-                      $filter: {
-                        input: '$$v.colorStock',
-                        as: 'cs',
-                        cond: { $gt: ['$$cs.stock', 0] },
-                      },
-                    },
+              colorStock: _buildColorFilterExpr(removeByName, color),
             },
           },
         },
       },
     },
+    // ── Stage 2: drop variants whose colorStock is now empty ─────────────────
     {
       $set: {
         variants: {
@@ -116,32 +102,38 @@ async function cleanupEmptyEntries(
       },
     },
     { $set: { stock: { $sum: '$variants.stock' } } },
-    { $project: { _id: 1, variants: 1, stock: 1 } },
+    { $project: { _id: 1, variants: 1, stock: 1 }     },
   ]);
 
-  // ── No-op guard ──────────────────────────────────────────────────────────
-  if (!result) return;
+  const aggregated = result as _ProductLean;
+  if (!aggregated || _isNoOpUpdate(aggregated, productId)) return;
 
+  await Product.updateOne({ _id: productId }, aggregated);
+}
+
+
+async function _isNoOpUpdate(
+  aggregated: _ProductLean,
+  productId: Types.ObjectId | string,
+): Promise<boolean> {
   const current = await Product.findById(productId).select('variants stock').lean().exec();
-  if (!current) return;
+  if (!current) return false;
 
   const variantsUnchanged =
-    (current.variants?.length || 0) === (result.variants?.length || 0) &&
+    (current.variants?.length || 0) === (aggregated.variants?.length || 0) &&
     (current.variants || []).every(
-      (pv: any, i: number) =>
-        pv.size === result.variants?.[i]?.size &&
-        (pv.stock || 0) === (result.variants?.[i]?.stock || 0) &&
-        (pv.colorStock || []).length === (result.variants?.[i]?.colorStock?.length || 0) &&
+      (pv, i) =>
+        pv.size === aggregated.variants?.[i]?.size &&
+        (pv.stock || 0) === (aggregated.variants?.[i]?.stock || 0) &&
+        (pv.colorStock || []).length === (aggregated.variants?.[i]?.colorStock?.length || 0) &&
         (pv.colorStock || []).every(
-          (pc: any, ci: number) =>
-            pc.name === result.variants?.[i]?.colorStock?.[ci]?.name &&
-            pc.stock === result.variants?.[i]?.colorStock?.[ci]?.stock,
+          (pc, ci) =>
+            pc.name === aggregated.variants?.[i]?.colorStock?.[ci]?.name &&
+            pc.stock === aggregated.variants?.[i]?.colorStock?.[ci]?.stock,
         ),
     );
 
-  if (variantsUnchanged && current.stock === result.stock) return; // nothing to do
-
-  await Product.updateOne({ _id: current._id }, result);
+  return variantsUnchanged && current.stock === aggregated.stock;
 }
 
 // ─── resolveStockSelection ───────────────────────────────────────────────────
@@ -160,12 +152,12 @@ export const resolveStockSelection = (
   }
 
   if (!size) {
-    throw new Error('Size is required for this product');
+    throw new Error(`Size is required for this product (productId: ${product._id.toString()}, stock: ${product.stock}, variants: ${variants.length})`);
   }
 
-  const variant = variants.find((v: any) => v.size === size);
+  const variant = variants.find((v) => v.size === size);
   if (!variant) {
-    throw new Error(`Size ${size} not available for this product`);
+    throw new Error(`Size ${size} not available for this product (productId: ${product._id.toString()}, sizes: ${variants.map((v) => v.size).join(', ') || 'none'})`);
   }
 
   const colorStock = variant.colorStock || [];
@@ -178,18 +170,16 @@ export const resolveStockSelection = (
   // ColorStock exists → colour must be resolved
   const resolvedColor = color || (colorStock.length === 1 ? colorStock[0].name : undefined);
   if (!resolvedColor) {
-    throw new Error('Color is required for this product');
+    throw new Error(`Color is required for this product (productId: ${product._id.toString()}, size: ${size}, colors: ${colorStock.map((c) => `${c.name}(${c.stock})`).join(', ')})`);
   }
 
-  const colorEntry = colorStock.find((c: any) => c.name === resolvedColor);
+  const colorEntry = colorStock.find((c) => c.name === resolvedColor);
   if (!colorEntry) {
-    throw new Error(`Color ${resolvedColor} not available for size ${size}`);
+    throw new Error(`Color ${resolvedColor} not available for size ${size} (productId: ${product._id.toString()}, available: ${colorStock.map((c) => c.name).join(', ')})`);
   }
 
   return { size, color: resolvedColor, availableStock: colorEntry.stock || 0, usesVariant: true, usesColorStock: true };
 };
-
-// ─── stock operations ────────────────────────────────────────────────────────
 
 export const assertStockAvailable = (
   product: IProduct,
@@ -198,7 +188,7 @@ export const assertStockAvailable = (
 ): ResolvedStockSelection => {
   const resolved = resolveStockSelection(product, selection);
   if (resolved.availableStock < quantity) {
-    throw new Error(`Requested quantity exceeds available stock. Available: ${resolved.availableStock}`);
+    throw new Error(`Not enough stock — only ${resolved.availableStock} available`);
   }
   return resolved;
 };

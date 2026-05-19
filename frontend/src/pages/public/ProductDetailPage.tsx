@@ -1,4 +1,4 @@
-import { Heart, Share2, Minus, Plus, ChevronDown, Loader2 } from '@/components/icons';
+import { Heart, Share2, ChevronDown, Loader2 } from '@/components/icons';
 
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
@@ -13,10 +13,6 @@ import type { Product } from "../../../../shared/src/index";
 import { showToast } from "@/components/ui/Toast";
 import { BackButton } from '@/components/ui/BackButton';
 
-
-// Accordion Section Component
-
-// Accordion Section Component
 const AccordionSection = ({
   title,
   children,
@@ -84,74 +80,107 @@ export function ProductDetailPage() {
   const { products: allProducts } = useProductsStore();
   const { addToCart, isSyncing } = useCartStore();
 
-  // Fetch product when id changes
   useEffect(() => {
     if (id) {
       useProductsStore.getState().fetchProduct(id);
     }
   }, [id]);
 
-  // Fetch related products on mount only
   useEffect(() => {
     useProductsStore.getState().fetchProducts();
   }, []);
 
-// Default sizes if not provided by product - only use variants or original sizes
-     const sizes = product?.variants?.map(v => v.size) || product?.sizes || [];
-     
-     // Calculate total stock
-     const totalStock = product?.variants && product.variants.length > 0
-       ? product.variants.reduce((sum: number, v: any) => sum + (v.stock || 0), 0)
-       : product?.stock ?? 0;
-     
-     // Get stock for selected size
-     const getSelectedSizeStock = () => {
-       if (!selectedSize) {
-         // If no size selected and no variants, return base stock
-         if (!product?.variants || product.variants.length === 0) {
-           return product?.stock ?? 0;
-         }
-         return 0;
-       }
-       if (product?.variants) {
-         const variant = product.variants.find(v => v.size === selectedSize);
-         return variant?.stock ?? 0;
-       }
-       return product?.stock ?? 0;
-     };
-     
-     const selectedSizeStock = getSelectedSizeStock();
-     const availableStock = product?.variants && product.variants.length > 0 ? selectedSizeStock : totalStock;
+  useEffect(() => {
+    setSelectedColor(null);
+  }, [selectedSize]);
 
-const handleAddToCart = async () => {
-      if (!product || isAddingToCart || isSyncing) return;
-      
-      // Validate stock
-      if (product.variants && product.variants.length > 0) {
-        // Size-based product: require selected size
-        if (!selectedSize) return;
-        const selectedVariant = product.variants.find(v => v.size === selectedSize);
-        if (!selectedVariant || (selectedVariant.stock ?? 0) < quantity) {
-          showToast({ type: 'error', title: 'Stock insuficiente' });
-          return;
-        }
-      } else if (product.stock < quantity) {
-        // Non-size-based product: check base stock
-        showToast({ type: 'error', title: 'Stock insuficiente' });
-        return;
-      }
-     
- setIsAddingToCart(true);
-      try {
-        await addToCart(product, quantity, selectedSize || undefined, selectedColor || undefined);
-        showToast({ type: 'success', title: 'Producto agregado al carrito' });
-      } catch (err) {
-       console.error("Failed to add to cart:", err);
-        showToast({ type: 'error', title: 'Error al agregar al carrito' });
-     } finally {
-       setIsAddingToCart(false);
-     }
-   };
+  useEffect(() => {
+    if (!product || !selectedSize) return;
+    
+    const variant = product.variants?.find(v => v.size === selectedSize);
+    if (variant && variant.stock === 0) {
+      setSelectedSize(null);
+      showToast({ 
+        type: 'info', 
+        title: 'La talla seleccionada ya no está disponible' 
+      });
+    }
+  }, [selectedSize, product]);
+
+  // ── Product info derivations ──────────────────────────────
+  const hasVariants = Boolean(product?.variants && product.variants.length > 0);
+  const sizes = product?.variants?.map(v => v.size) || product?.sizes || [];
+  
+  // Total stock across all variants or base stock
+  const totalStock = hasVariants && product
+    ? product.variants!.reduce((sum, v) => sum + (v.stock || 0), 0)
+    : product?.stock ?? 0;
+
+  // Get selected variant
+  const selectedVariant = hasVariants && selectedSize && product
+    ? product.variants!.find(v => v.size === selectedSize)
+    : null;
+
+  // Colors available for selected size (from variant.colorStock)
+  const availableColors = selectedVariant?.colorStock
+    ?.filter(cs => cs.stock > 0)
+    .map(cs => cs.name) || [];
+
+  // Stock calculation based on selection
+  const getAvailableStock = (): number => {
+    // Product without variants
+    if (!hasVariants) {
+      return product?.stock ?? 0;
+    }
+
+    // Variants but no size selected yet
+    if (!selectedSize || !selectedVariant) {
+      return 0;
+    }
+
+    // Size selected but no color selection (or no colorStock)
+    if (!selectedColor || !selectedVariant.colorStock || selectedVariant.colorStock.length === 0) {
+      return selectedVariant.stock;
+    }
+
+    // Size + Color selected
+    const colorStock = selectedVariant.colorStock.find(cs => cs.name === selectedColor);
+    return colorStock?.stock ?? 0;
+  };
+
+  const availableStock = getAvailableStock();
+
+  const handleAddToCart = async () => {
+    if (!product || isAddingToCart || isSyncing) return;
+
+    // Validation: products with variants require size selection
+    if (hasVariants && !selectedSize) {
+      showToast({ type: 'error', title: 'Selecciona una talla' });
+      return;
+    }
+
+    // Validation: check stock
+    if (availableStock < quantity) {
+      showToast({ type: 'error', title: 'Stock insuficiente' });
+      return;
+    }
+
+    setIsAddingToCart(true);
+    try {
+      await addToCart(
+        product,
+        quantity,
+        selectedSize || undefined,
+        selectedColor || undefined
+      );
+      showToast({ type: 'success', title: 'Producto agregado al carrito' });
+    } catch (err) {
+      console.error("Failed to add to cart:", err);
+      showToast({ type: 'error', title: 'Error al agregar al carrito' });
+    } finally {
+      setIsAddingToCart(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -225,12 +254,7 @@ return (
 
           {/* Product Info Section */}
           <div className="lg:col-span-5 lg:border-l lg:border-dashed lg:border-outline-variant/40 lg:pl-16">
-            {/* Breadcrumbs */}
-            <nav className="mb-6 sm:mb-8">
-              <span className="text-xs uppercase tracking-[0.2em] text-on-surface-variant font-label">
-                Colecciones / Knitwear
-              </span>
-            </nav>
+            
 
             {/* Product Title */}
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-serif text-on-surface mb-4 leading-tight">
@@ -255,42 +279,45 @@ return (
 
 {/* Selectors & Add to Cart */}
               <div className="space-y-6 sm:space-y-8 mb-8 sm:mb-12">
-{/* Stock Indicator - only for size-based products */}
-              {sizes.length > 0 && selectedSizeStock === 0 && selectedSize && (
-                <p className="text-sm text-error font-medium mb-4">
-                  Agotado - Próximamente disponible
-                </p>
-              )}
-              {sizes.length > 0 && selectedSizeStock > 0 && selectedSizeStock <= 5 && (
-                <p className="text-sm text-verde-bosque-600 font-medium mb-4">
-                  ¡Últimas {selectedSizeStock} unidades disponibles!
-                </p>
-              )}
-              {/* Low stock for non-size products */}
-              {sizes.length === 0 && totalStock <= 5 && totalStock > 0 && (
-                <p className="text-sm text-verde-bosque-600 font-medium mb-4">
-                  ¡Últimas {totalStock} unidades disponibles!
-                </p>
-              )}
+                {/* Stock Indicators */}
+                {availableStock === 0 && selectedSize && (
+                  <p className="text-sm text-error font-medium">
+                    Agotado - Próximamente disponible
+                  </p>
+                )}
+                {availableStock > 0 && availableStock <= 5 && (
+                  <p className="text-sm text-verde-bosque-600 font-medium">
+                    ¡Últimas {availableStock} unidades disponibles!
+                  </p>
+                )}
 
-{/* Size Selector - only show if product has variants */}
-               {sizes.length > 0 && (
-                 <SizeSelector
-                   sizes={sizes}
-                   selectedSize={selectedSize}
-                   onSelectSize={setSelectedSize}
-                   variants={product.variants}
-                 />
-               )}
+                {/* Size Selector - only show if product has variants */}
+                {sizes.length > 0 && (
+                  <SizeSelector
+                    sizes={sizes}
+                    selectedSize={selectedSize}
+                    onSelectSize={setSelectedSize}
+                    variants={product.variants}
+                  />
+                )}
 
-               {/* Color Selector */}
-               {product.colors && product.colors.length > 0 && (
-                 <ColorSwatch
-                   colors={product.colors}
-                   selectedColor={selectedColor}
-                   onSelectColor={setSelectedColor}
-                 />
-               )}
+                {/* Color Selector - show only when size is selected and colors exist */}
+                {hasVariants && selectedSize && availableColors.length > 0 && (
+                  <ColorSwatch
+                    colors={availableColors}
+                    selectedColor={selectedColor}
+                    onSelectColor={setSelectedColor}
+                  />
+                )}
+
+                {/* Color Selector for non-variant products */}
+                {!hasVariants && product.colors && product.colors.length > 0 && (
+                  <ColorSwatch
+                    colors={product.colors}
+                    selectedColor={selectedColor}
+                    onSelectColor={setSelectedColor}
+                  />
+                )}
 
 {/* Quantity Selector */}
                 <div className="mt-6 sm:mt-8">
@@ -306,18 +333,23 @@ return (
                   />
                 </div>
 
-{/* Add to Cart Button */}
-                 <button
-                   onClick={handleAddToCart}
-                   disabled={(sizes.length > 0 && !selectedSize) || isSyncing || isAddingToCart || availableStock === 0}
-                   className="w-full bg-primary-container text-on-primary-container py-4 sm:py-5 rounded-lg font-bold uppercase tracking-widest font-label hover:bg-primary transition-all duration-300 shadow-md disabled:opacity-50 mt-6 sm:mt-8 min-h-[44px]"
-               >
-                 {availableStock === 0
-                   ? "Agotado"
-                   : isSyncing || isAddingToCart
-                   ? "Añadiendo..."
-                   : "Añadir al Carrito"}
-               </button>
+                {/* Add to Cart Button */}
+                <button
+                  onClick={handleAddToCart}
+                  disabled={
+                    availableStock === 0 ||
+                    (hasVariants && !selectedSize) ||
+                    isSyncing ||
+                    isAddingToCart
+                  }
+                  className="w-full bg-primary-container text-on-primary-container py-4 sm:py-5 rounded-lg font-bold uppercase tracking-widest font-label hover:bg-primary transition-all duration-300 shadow-md disabled:opacity-50 mt-6 sm:mt-8 min-h-[44px]"
+                >
+                  {availableStock === 0
+                    ? "Agotado"
+                    : isSyncing || isAddingToCart
+                    ? "Añadiendo..."
+                    : "Añadir al Carrito"}
+                </button>
               </div>
 
              {/* Social & Wishlist */}
