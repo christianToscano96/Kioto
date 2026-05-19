@@ -30,7 +30,8 @@ router.get('/products', validate(productQuerySchema), async (req: Request, res: 
         .skip(skip)
         .limit(limit)
         .select('-__v')
-        .populate('category', 'name') // Populate category name
+        .populate('category', 'name')
+        .populate('variants') // Populate variants for stock display
         .lean(),
       Product.countDocuments(query),
     ]);
@@ -67,8 +68,8 @@ router.get('/products', validate(productQuerySchema), async (req: Request, res: 
      let product = null;
      
      // If it looks like an ObjectId, try to find by ID first
-     if (isObjectId) {
-       product = await Product.findById(id).select('-__v').populate('category', 'name').lean();
+      if (isObjectId) {
+        product = await Product.findById(id).select('-__v').populate('category', 'name').populate('variants').lean();
        
        // If found by ID but not published, try by slug
        if (product && (product as any).published === false) {
@@ -77,8 +78,8 @@ router.get('/products', validate(productQuerySchema), async (req: Request, res: 
      }
      
      // If not found by ID (or wasn't an ObjectId), try by slug
-     if (!product) {
-       product = await Product.findOne({ slug: id, published: true }).select('-__v').populate('category', 'name').lean();
+      if (!product) {
+        product = await Product.findOne({ slug: id, published: true }).select('-__v').populate('category', 'name').populate('variants').lean();
      }
 
      if (!product) {
@@ -100,7 +101,7 @@ router.get('/products/slug/:slug', async (req: Request, res: Response) => {
   try {
     const { slug } = req.params;
 
-    const product = await Product.findOne({ slug, published: true }).select('-__v').populate('category', 'name').lean();
+    const product = await Product.findOne({ slug, published: true }).select('-__v').populate('category', 'name').populate('variants').lean();
 
     if (!product) {
       res.status(404).json({ error: 'Product not found' });
