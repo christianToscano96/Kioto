@@ -1,6 +1,7 @@
-import { useState, memo } from "react";
-import { Link } from "react-router-dom";
+import { useState, memo, useCallback, useRef } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useDeviceType } from "@/hooks/useDeviceType";
+import { usePrefetchRoute } from "@/hooks/usePrefetchRoute";
 import { OptimizedImage } from "./OptimizedImage";
 import { useProductStock } from "../../hooks/useProductStock";
 import {  Eye, ShoppingCart, ChevronLeft, ChevronRight } from '@/components/icons';
@@ -45,6 +46,17 @@ export function ProductCardGrid({
   onAddToCart,
 }: ProductCardGridProps) {
   const { isMobile } = useDeviceType();
+  const { prefetchRoute } = usePrefetchRoute();
+  const hasPrefetched = useRef(false);
+
+  const handleMouseEnter = useCallback(() => {
+    // Prefetch product detail page on hover (desktop only)
+    // Only once per card, and only on desktop
+    if (!isMobile && !hasPrefetched.current) {
+      hasPrefetched.current = true;
+      prefetchRoute(`/products/${product._id}`);
+    }
+  }, [isMobile, prefetchRoute, product._id]);
 
   const nextImage = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -59,7 +71,10 @@ export function ProductCardGrid({
   };
 
   return (
-    <div className="group relative bg-surface-container-low rounded-lg overflow-hidden">
+    <div 
+      className="group relative bg-surface-container-low rounded-lg overflow-hidden"
+      onMouseEnter={handleMouseEnter}
+    >
       {/* Image Container */}
       <Link to={`/products/${product._id}`} className="block">
         <div className="aspect-[3/4] bg-surface-container rounded-lg overflow-hidden relative">

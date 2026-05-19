@@ -76,16 +76,71 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
+        manualChunks: (id) => {
           // Core React libraries
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          // UI components
-          ui: ['lucide-react', 'clsx', 'tailwind-merge'],
-          // Admin-only libraries (loaded via code splitting but good for cache)
-          charts: ['recharts'],
-          // Utilities
-          utils: ['axios', 'date-fns'],
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+            return 'vendor-react';
+          }
+          
+          // Router
+          if (id.includes('node_modules/react-router')) {
+            return 'vendor-router';
+          }
+          
+          // React Query
+          if (id.includes('@tanstack/react-query')) {
+            // Devtools should be in separate chunk (only in dev)
+            if (id.includes('devtools')) {
+              return 'dev-tools';
+            }
+            return 'vendor-query';
+          }
+          
+          // Zustand (lightweight state)
+          if (id.includes('node_modules/zustand')) {
+            return 'vendor-state';
+          }
+          
+          // Admin-only heavy dependencies
+          if (id.includes('node_modules/recharts')) {
+            return 'admin-charts';
+          }
+          
+          // Admin pages (only load when visiting /admin)
+          if (id.includes('src/pages/admin')) {
+            return 'admin-pages';
+          }
+          
+          // UI icons and utils
+          if (id.includes('lucide-react') || id.includes('clsx') || id.includes('tailwind-merge')) {
+            return 'vendor-ui';
+          }
+          
+          // HTTP client and utilities
+          if (id.includes('axios') || id.includes('date-fns')) {
+            return 'vendor-utils';
+          }
+          
+          // Socket.io
+          if (id.includes('socket.io-client')) {
+            return 'vendor-socket';
+          }
+          
+          // Stripe
+          if (id.includes('@stripe')) {
+            return 'vendor-stripe';
+          }
         },
+      },
+    },
+    // Optimize chunk sizes
+    chunkSizeWarningLimit: 1000,
+    // Enable minification
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true, // Remove console.logs in production
+        drop_debugger: true,
       },
     },
   },

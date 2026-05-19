@@ -3,8 +3,8 @@ import { useEffect } from "react";
 import { PublicHeader } from "@/components/layout/PublicHeader";
 import { Footer } from "@/components/layout/Footer";
 import { useCartStore } from "@/store/cart";
+import { LazyVideo } from '@/components/ui/LazyVideo';
 import { ShoppingBag } from '@/components/icons';
-import successVideo from '../../../assets/success.webm';
 
 export function CheckoutSuccessPage() {
   const [searchParams] = useSearchParams();
@@ -24,8 +24,8 @@ export function CheckoutSuccessPage() {
         <div className="max-w-2xl mx-auto text-center">
           {/* Success Video */}
           <div className="relative w-64 h-64 mx-auto mb-8 rounded-full overflow-hidden bg-primary-container animate-fade-in">
-            <video
-              src={successVideo}
+            <LazyVideo
+              src="/assets/success.webm"
               autoPlay
               muted
               playsInline

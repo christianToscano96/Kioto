@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface OptimizedImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
   src: string;
@@ -9,6 +9,27 @@ interface OptimizedImageProps extends React.ImgHTMLAttributes<HTMLImageElement> 
   quality?: number;
   priority?: boolean;
 }
+
+// Validate image URL
+const isValidImageUrl = (url: string): boolean => {
+  if (!url || url.trim() === '') return false;
+  
+  // Check if it's a valid URL format
+  try {
+    // Local paths
+    if (url.startsWith('/') || url.startsWith('./')) return true;
+    
+    // External URLs
+    if (url.startsWith('http')) {
+      new URL(url);
+      return true;
+    }
+    
+    return false;
+  } catch {
+    return false;
+  }
+};
 
 // Helper to use Vercel Image Optimization
 const getOptimizedImageUrl = (
@@ -51,12 +72,33 @@ export function OptimizedImage({
 }: OptimizedImageProps) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
-  const optimizedSrc = getOptimizedImageUrl(src, width, quality);
+  
+  // Validate URL before attempting to load
+  const isValid = isValidImageUrl(src);
+  const optimizedSrc = isValid ? getOptimizedImageUrl(src, width, quality) : '';
 
-  if (hasError) {
+  // Reset states when src changes
+  useEffect(() => {
+    setIsLoaded(false);
+    setHasError(!isValid);
+  }, [src, isValid]);
+
+  if (!isValid || hasError) {
     return (
-      <div className={`bg-surface-container flex items-center justify-center ${className}`}>
-        <span className="text-on-surface-variant text-xs">Imagen no disponible</span>
+      <div className={`bg-surface-container-low flex items-center justify-center ${className}`}>
+        <svg
+          className="w-12 h-12 text-on-surface-variant/30"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={1.5}
+            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+          />
+        </svg>
       </div>
     );
   }
@@ -71,7 +113,15 @@ export function OptimizedImage({
       loading={priority ? 'eager' : 'lazy'}
       decoding="async"
       onLoad={() => setIsLoaded(true)}
-      onError={() => setHasError(true)}
+      onError={(e) => {
+        // Suppress console error in production
+        if (import.meta.env.DEV) {
+          console.warn(`Failed to load image: ${src}`);
+        }
+        setHasError(true);
+        // Prevent default error handling
+        e.preventDefault();
+      }}
       {...props}
     />
   );
