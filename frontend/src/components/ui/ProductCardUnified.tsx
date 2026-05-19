@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, memo } from "react";
 import { useCartStore } from "../../store/cart";
 import { useToast } from "./Toast";
 import { useProductStock } from "../../hooks/useProductStock";
@@ -97,3 +97,16 @@ export function ProductCardUnified({
     />
   );
 }
+
+// Memoized version to prevent unnecessary re-renders
+export default memo(ProductCardUnified, (prevProps, nextProps) => {
+  // Only re-render if product data or variant changes
+  return (
+    prevProps.product._id === nextProps.product._id &&
+    prevProps.product.price === nextProps.product.price &&
+    prevProps.product.name === nextProps.product.name &&
+    prevProps.product.stock === nextProps.product.stock &&
+    prevProps.variant === nextProps.variant &&
+    prevProps.showQuickActions === nextProps.showQuickActions
+  );
+});

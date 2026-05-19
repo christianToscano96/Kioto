@@ -17,16 +17,18 @@ import {
   ProductSkeleton,
   CategorySkeleton 
 } from '@/components/ui/ProductSkeleton';
-import comprandoVideo from '../../../assets/comprando.webm';
-import fleteVideo from '../../../assets/flete.webm';
-import kiotoVideo from '../../../assets/kioto.webm';
+import { LazyVideo } from '@/components/ui/LazyVideo';
 import { CategorySection } from '@/components/home/CategorySection';
 import { useDeviceType } from "@/hooks/useDeviceType";
+import { usePrefetchCriticalRoutes } from "@/hooks/usePrefetchRoute";
 
 export function HomePage() {
   const { products, isLoading, fetchProducts } = useProductsStore();
   const { categories, fetchCategories } = useCategoriesStore();
   const { isMobile } = useDeviceType();
+  
+  // Prefetch critical routes
+  usePrefetchCriticalRoutes();
 
   // Quick Add Sidebar (right drawer — desktop)
   const quickAddSidebar = useQuickAddSidebar();
@@ -151,14 +153,13 @@ export function HomePage() {
               <div className="flex-1 relative w-full max-w-lg animate-fade-in" style={{ animationDelay: '400ms' }}>
                   <div className="relative rounded-2xl overflow-hidden max-w-lg">
                     <div className="aspect-video">
-                      <video
-                        src={kiotoVideo}
+                      <LazyVideo
+                        src="/assets/kioto.webm"
                         autoPlay
                         muted
                         loop
                         playsInline
                         disablePictureInPicture
-                        preload="none"
                         className="w-full h-full object-cover"
                       />
                     </div>
@@ -244,14 +245,13 @@ export function HomePage() {
             <div className="flex flex-col lg:flex-row gap-4 animate-on-scroll">
               {/* Video */}
               <div className="flex-1 rounded-md overflow-hidden aspect-video">
-                <video
-                  src={comprandoVideo}
+                <LazyVideo
+                  src="/assets/comprando.webm"
                   autoPlay
                   muted
                   loop
                   playsInline
                   disablePictureInPicture
-                  preload="none"
                   className="w-full h-full object-cover"
                 />
               </div>
@@ -313,14 +313,13 @@ export function HomePage() {
                 </div>
               </div>
               <div className="flex-1 rounded-md overflow-hidden aspect-video">
-                <video
-                  src={fleteVideo}
+                <LazyVideo
+                  src="/assets/flete.webm"
                   autoPlay
                   muted
                   loop
                   playsInline
                   className="w-full h-full object-cover"
-                  preload="none"
                 />
               </div>
             </div>

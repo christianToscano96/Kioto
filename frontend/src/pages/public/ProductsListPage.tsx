@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useProductsStore } from "@/store/products";
 import { useCategoriesStore } from "@/store/categories";
@@ -23,12 +23,17 @@ import { PriceRangeFilter } from "@/components/ui/PriceRangeFilter";
 import { BackButton } from "@/components/ui/BackButton";
 import { Filter, ArrowLeft, Loader2 } from "@/components/icons";
 import { useDeviceType } from "@/hooks/useDeviceType";
+import { useDebounce } from "@/hooks/useDebounce";
 
 export function ProductsListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialQuery = searchParams.get("q") || "";
   const initialCategory = searchParams.get("category") || "";
   const [searchQuery, setSearchQuery] = useState(initialQuery);
+  
+  // Debounce search to avoid excessive filtering
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  
   const [selectedCategory, setSelectedCategory] = useState<string | null>(
     initialCategory || null,
   );
@@ -116,7 +121,6 @@ export function ProductsListPage() {
     // Category filter - handle both populated object and ObjectId
     if (selectedCategory) {
       filtered = filtered.filter((p) => {
-        console.log(p);
         const catName =
           typeof p.category === "object" &&
           p.category !== null &&
@@ -127,9 +131,9 @@ export function ProductsListPage() {
       });
     }
 
-    // Search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
+    // Search filter - using debounced value
+    if (debouncedSearchQuery.trim()) {
+      const query = debouncedSearchQuery.toLowerCase();
       filtered = filtered.filter(
         (p) =>
           p.name.toLowerCase().includes(query) ||
@@ -173,15 +177,8 @@ export function ProductsListPage() {
     }
 
     return filtered;
-  }, [
-    products,
-    selectedCategory,
-    searchQuery,
-    filterSize,
-    filterColor,
-    sortBy,
-    priceRange,
-  ]);
+    return filtered;
+  }, [products, selectedCategory, debouncedSearchQuery, filterSize, filterColor, priceRange, sortBy]);
 
   // Infinite scroll
   const visibleProducts = useMemo(
@@ -211,17 +208,17 @@ export function ProductsListPage() {
     return () => observer.disconnect();
   }, [filteredProducts.length, visibleCount]);
 
-   const handleQuickAdd = (productId: string) => {
+  const handleQuickAdd = useCallback((productId: string) => {
     // Desktop → sidebar derecho; Mobile (y tablet chica) → BottomSheet
     if (isMobile) {
       openQuickAdd(productId);
     } else {
       openQuickAddSidebar(productId);
     }
-  };
+  }, [isMobile, openQuickAdd, openQuickAddSidebar]);
 
   // Active filters for display
-  const activeFilters: ActiveFilter[] = [
+  const activeFilters: ActiveFilter[] = useMemo(() => [
     ...(selectedCategory
       ? [{ id: "category", label: "Categoría", value: selectedCategory }]
       : []),
@@ -231,26 +228,26 @@ export function ProductsListPage() {
     ...(filterColor
       ? [{ id: "color", label: "Color", value: filterColor }]
       : []),
-  ];
+  ], [selectedCategory, filterSize, filterColor]);
 
-  const removeFilter = (id: string) => {
+  const removeFilter = useCallback((id: string) => {
     if (id === "category") setSelectedCategory(null);
     if (id === "size") setFilterSize(null);
     if (id === "color") setFilterColor(null);
-  };
+  }, []);
 
-  const clearAllFilters = () => {
+  const clearAllFilters = useCallback(() => {
     setSelectedCategory(null);
     setFilterSize(null);
     setFilterColor(null);
     setSearchQuery("");
-  };
+  }, []);
 
-  const handleCategoryClick = (categoryName: string) => {
-    setSelectedCategory(
-      selectedCategory === categoryName ? null : categoryName,
+  const handleCategoryClick = useCallback((categoryName: string) => {
+    setSelectedCategory(prevCategory =>
+      prevCategory === categoryName ? null : categoryName
     );
-  };
+  }, []);
 
   if (isLoading) {
     return (
