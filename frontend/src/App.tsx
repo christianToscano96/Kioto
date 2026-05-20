@@ -3,6 +3,7 @@ import { lazy, Suspense } from 'react';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ToastContainer } from '@/components/ui/Toast';
 import { Loader2 } from '@/components/icons';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 // ── Eager-loaded (critical path) ──────────────────────────
 import { HomePage } from '@/pages/public/HomePage';
@@ -82,6 +83,7 @@ function App() {
         </Suspense>
       </ErrorBoundary>
       <ToastContainer />
+      <SpeedInsights />
     </div>
   );
 }
