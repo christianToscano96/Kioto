@@ -56,6 +56,9 @@ const RelatedProductCard = ({ product }: { product: Product }) => {
           className={`w-full h-full object-cover transition-all duration-700 ${
             totalStock === 0 ? "grayscale opacity-60" : ""
           }`}
+          width={400}
+          height={500}
+          loading="eager"
         />
         {totalStock === 0 && (
           <div className="absolute top-1 sm:top-2 right-1 sm:right-2 bg-error text-on-primary text-[10px] uppercase tracking-widest px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full font-label">
@@ -198,6 +201,9 @@ return (
                 src={images[selectedImageIndex]}
                 alt={product.name}
                 className="w-full h-auto object-cover"
+                width={800}
+                height={1000}
+                loading="eager"
               />
             </div>
 
@@ -216,6 +222,9 @@ return (
                       src={image}
                       alt={`${product.name} ${index + 1}`}
                       className="w-full h-full object-cover"
+                      width={200}
+                      height={200}
+                      loading="lazy"
                     />
                   </button>
                 ))}

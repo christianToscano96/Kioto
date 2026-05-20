@@ -150,18 +150,19 @@ export function HomePage() {
               </div>
               
               {/* Right Video */}
-              <div className="flex-1 relative w-full max-w-lg animate-fade-in" style={{ animationDelay: '400ms' }}>
-                  <div className="relative rounded-2xl overflow-hidden max-w-lg">
-                    <div className="aspect-video">
-                      <LazyVideo
-                        src="/assets/kioto.webm"
-                        autoPlay
-                        muted
-                        loop
-                        playsInline
-                        disablePictureInPicture
-                        className="w-full h-full object-cover"
-                      />
+                <div className="flex-1 relative w-full max-w-lg animate-fade-in" style={{ animationDelay: '400ms' }}>
+                    <div className="relative rounded-2xl overflow-hidden max-w-lg">
+                      <div className="aspect-video">
+                        <LazyVideo
+                          src="/assets/kioto.webm"
+                          autoPlay
+                          muted
+                          loop
+                          playsInline
+                          disablePictureInPicture
+                          poster="/assets/logo-C0h7ZzoF.png"
+                          className="w-full h-full object-cover"
+                        />
                     </div>
                   </div>
                 </div>
@@ -196,6 +197,9 @@ export function HomePage() {
                           src={product.images[0]}
                           alt={product.name}
                           className="w-full h-full object-cover"
+                          width={200}
+                          height={200}
+                          loading="lazy"
                         />
                       )}
                     </div>
@@ -245,15 +249,16 @@ export function HomePage() {
             <div className="flex flex-col lg:flex-row gap-4 animate-on-scroll">
               {/* Video */}
               <div className="flex-1 rounded-md overflow-hidden aspect-video">
-                <LazyVideo
-                  src="/assets/comprando.webm"
-                  autoPlay
-                  muted
-                  loop
-                  playsInline
-                  disablePictureInPicture
-                  className="w-full h-full object-cover"
-                />
+                 <LazyVideo
+                   src="/assets/comprando.webm"
+                   autoPlay
+                   muted
+                   loop
+                   playsInline
+                   disablePictureInPicture
+                   poster="/assets/logo-C0h7ZzoF.png"
+                   className="w-full h-full object-cover"
+                 />
               </div>
               {/* Text Content */}
               <div className="flex-1 bg-surface-container rounded-md p-6 flex items-center">
@@ -319,6 +324,7 @@ export function HomePage() {
                   muted
                   loop
                   playsInline
+                  poster="/assets/logo-C0h7ZzoF.png"
                   className="w-full h-full object-cover"
                 />
               </div>
