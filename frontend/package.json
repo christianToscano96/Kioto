@@ -19,6 +19,7 @@
     "@stripe/stripe-js": "^3.5.0",
     "@tanstack/react-query": "^5.100.10",
     "@tanstack/react-query-devtools": "^5.100.10",
+    "@vercel/speed-insights": "^2.0.0",
     "axios": "^1.6.8",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",

@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import { queryClient } from './lib/query-client';
+import { injectSpeedInsights } from '@vercel/speed-insights';
 import './index.css';
 
 // Lazy load devtools only in development
@@ -52,6 +53,10 @@ const setupScrollAnimations = () => {
 
   mutationObserver.observe(document.body, { childList: true, subtree: true });
 };
+
+// Initialize Vercel Speed Insights
+// Vercel injects SPEED_INSIGHTS env var at build time with the full config
+injectSpeedInsights({}, import.meta.env.SPEED_INSIGHTS as string | undefined);
 
 // Run after DOM is ready
 if (typeof window !== 'undefined') {
