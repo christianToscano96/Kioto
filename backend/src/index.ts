@@ -22,6 +22,11 @@ import notificationRoutes from "./routes/notifications";
 dotenv.config();
 
 const app = express();
+
+// Trust Render's proxy — without this express-rate-limit v7 throws
+// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR whenever X-Forwarded-For is present.
+app.set('trust proxy', true);
+
 const PORT = process.env.PORT || 4000;
 
 // Security middleware
