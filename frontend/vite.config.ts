@@ -1,12 +1,32 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from 'vite-plugin-pwa';
 import { visualizer } from 'rollup-plugin-visualizer';
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const apiUrl = env.VITE_API_URL || 'http://localhost:4000/api';
+  let apiOrigin = 'http://localhost:4000';
+
+  try {
+    apiOrigin = new URL(apiUrl).origin;
+  } catch {
+    // Keep localhost fallback when VITE_API_URL is malformed.
+  }
+
+  return {
   plugins: [
     react(),
+    {
+      name: 'inject-api-preconnect',
+      transformIndexHtml(html) {
+        return html.replace(
+          '</head>',
+          `    <link rel="preconnect" href="${apiOrigin}" crossorigin>\n    <link rel="dns-prefetch" href="${apiOrigin}">\n  </head>`,
+        );
+      },
+    },
     /**
      * Bundle analyzer - generates stats.html
      * Run: ANALYZE=true npm run build
@@ -22,6 +42,16 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,mp4}'],
         runtimeCaching: [
+          {
+            urlPattern: ({ url }) => /\/api\/public\//.test(url.pathname),
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'kioto-public-api',
+              networkTimeoutSeconds: 12,
+              expiration: { maxEntries: 32, maxAgeSeconds: 60 * 5 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
           {
             urlPattern: /^https:\/\/api\./,
             handler: 'NetworkFirst',
@@ -144,4 +174,5 @@ export default defineConfig({
       },
     },
   },
+};
 });

@@ -13,7 +13,6 @@ import { CartSidebar } from "@/components/ui/CartSidebar";
 import { QuickAddBottomSheet } from "@/components/ui/QuickAddBottomSheet";
 import { Heart } from '@/components/icons';
 import { 
-  Skeleton, 
   ProductSkeleton,
   CategorySkeleton 
 } from '@/components/ui/ProductSkeleton';
@@ -23,8 +22,8 @@ import { useDeviceType } from "@/hooks/useDeviceType";
 import { usePrefetchCriticalRoutes } from "@/hooks/usePrefetchRoute";
 
 export function HomePage() {
-  const { products, isLoading, fetchProducts } = useProductsStore();
-  const { categories, fetchCategories } = useCategoriesStore();
+  const { products, isLoadingList, isRefreshingList, error, fetchProducts } = useProductsStore();
+  const { categories, isLoadingList: categoriesLoading, fetchCategories } = useCategoriesStore();
   const { isMobile } = useDeviceType();
   
   // Prefetch critical routes
@@ -61,59 +60,18 @@ export function HomePage() {
     [products]
   );
 
-  if (isLoading) {
-    return (
-      <>
-        <Header />
-        <main>
-          <PageContainer>
-            {/* Hero Banner Skeleton */}
-            <section className="py-16 border-b border-outline-variant/10">
-              <div className="flex flex-col lg:flex-row gap-12 items-center">
-                <div className="flex-1 max-w-xl space-y-4">
-                  <Skeleton className="h-10 w-36 rounded-full mb-6" />
-                  <Skeleton className="h-12 w-full rounded mb-4" />
-                  <Skeleton className="h-8 w-full rounded mb-4" />
-                  <Skeleton className="h-8 w-3/4 rounded mb-8" />
-                  <Skeleton className="h-12 w-40 rounded-full" />
-                </div>
-                <div className="flex-1 w-full">
-                  <Skeleton className="aspect-video w-full max-w-lg rounded-2xl" />
-                </div>
-              </div>
-            </section>
-
-            {/* Categories Skeleton */}
-            <section className="py-8">
-              <div className="flex gap-4 overflow-hidden">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <CategorySkeleton key={i} />
-                ))}
-              </div>
-            </section>
-
-            {/* New Arrivals Skeleton */}
-            <section className="py-12">
-              <div className="flex items-center justify-between mb-6">
-                <div className="space-y-2">
-                  <Skeleton className="h-8 w-48 rounded" />
-                  <Skeleton className="h-4 w-32 rounded" />
-                </div>
-                <Skeleton className="h-4 w-16 rounded" />
-              </div>
-              <ProductSkeleton count={10} />
-            </section>
-          </PageContainer>
-        </main>
-        <Footer />
-        {/* <BottomNav /> */}
-      </>
-    );
-  }
+  const showProductSkeleton = isLoadingList && products.length === 0;
+  const showCategorySkeleton = categoriesLoading && categories.length === 0;
 
   return (
     <>
       <Header />
+
+      {isRefreshingList && (
+        <div className="bg-primary-container/30 text-primary text-center text-xs py-1.5 font-label uppercase tracking-wider">
+          Actualizando catálogo…
+        </div>
+      )}
 
       <main>
       
@@ -170,7 +128,17 @@ export function HomePage() {
           </section>
   
           {/* Categories Section */}
-          <CategorySection categories={categories} />
+          {showCategorySkeleton ? (
+            <section className="py-8" aria-busy="true" aria-label="Cargando categorías">
+              <div className="flex gap-4 overflow-hidden">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <CategorySkeleton key={i} />
+                ))}
+              </div>
+            </section>
+          ) : (
+            <CategorySection categories={categories} />
+          )}
 
           {/* Sale Banner */}
           {saleProducts.length > 0 && (
@@ -235,13 +203,35 @@ export function HomePage() {
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 stagger-children">
-              {newProducts.map((product) => (
-                <ProductCardUnified
-                  key={product._id}
-                  product={product}
-                  onAddToCart={handleQuickAdd}
-                />
-              ))}
+              {showProductSkeleton ? (
+                <div className="col-span-full" aria-busy="true" aria-label="Cargando productos">
+                  <p className="text-sm text-on-surface-variant text-center mb-4">
+                    Preparando nuestro catálogo…
+                  </p>
+                  <ProductSkeleton count={10} />
+                </div>
+              ) : error && products.length === 0 ? (
+                <div className="col-span-full text-center py-8">
+                  <p className="text-on-surface-variant mb-4">
+                    No pudimos cargar los productos. El servidor puede estar despertando.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => fetchProducts()}
+                    className="inline-flex items-center justify-center bg-primary text-on-primary font-medium text-sm px-6 py-2.5 rounded-md hover:bg-primary-hover transition-colors"
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              ) : (
+                newProducts.map((product) => (
+                  <ProductCardUnified
+                    key={product._id}
+                    product={product}
+                    onAddToCart={handleQuickAdd}
+                  />
+                ))
+              )}
             </div>
           </section>
 

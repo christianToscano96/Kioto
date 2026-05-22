@@ -82,7 +82,7 @@ export function ProductDetailPage() {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [isAddingToCart, setIsAddingToCart] = useState(false);
   const product = useProductsStore((state) => state.product);
-  const isLoading = useProductsStore((state) => state.isLoading);
+  const isLoadingDetail = useProductsStore((state) => state.isLoadingDetail);
   const productsError = useProductsError();
   const { products: allProducts } = useProductsStore();
   const { addToCart, isSyncing } = useCartStore();
@@ -156,7 +156,7 @@ const handleAddToCart = async () => {
      }
    };
 
-  if (isLoading) {
+  if (isLoadingDetail && !product) {
     return (
       <>
         <Header />

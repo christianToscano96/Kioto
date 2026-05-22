@@ -4,8 +4,11 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import { queryClient } from './lib/query-client';
+import { bootstrapStorefrontData } from './lib/storefrontBootstrap';
 import { injectSpeedInsights } from '@vercel/speed-insights';
 import './index.css';
+
+bootstrapStorefrontData();
 
 // Lazy load devtools only in development
 const ReactQueryDevtools = import.meta.env.DEV

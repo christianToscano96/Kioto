@@ -14,7 +14,7 @@ export function CategoryForm() {
   const isEdit = !!id;
 
   const categories = useCategoriesStore((state) => state.categories);
-  const isLoading = useCategoriesStore((state) => state.isLoading);
+  const isLoading = useCategoriesStore((state) => state.isLoadingAdmin);
   const createCategory = useCategoriesStore((state) => state.createCategory);
   const updateCategory = useCategoriesStore((state) => state.updateCategory);
   const fetchCategories = useCategoriesStore((state) => state.fetchCategories);
