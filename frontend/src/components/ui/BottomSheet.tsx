@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, type RefObject } from "react";
 import { X } from "@/components/icons";
 
 interface BottomSheetProps {
@@ -6,9 +6,12 @@ interface BottomSheetProps {
   onClose: () => void;
   title?: React.ReactNode;
   children: React.ReactNode;
+  footer?: React.ReactNode;
   maxHeight?: string;
   closable?: boolean;
   contentClassName?: string;
+  scrollContainerRef?: RefObject<HTMLDivElement | null>;
+  fullHeight?: boolean;
 }
 
 
@@ -17,11 +20,13 @@ export function BottomSheet({
   onClose,
   title,
   children,
+  footer,
   maxHeight = "auto",
   closable = true,
   contentClassName = "",
+  scrollContainerRef,
+  fullHeight = false,
 }: BottomSheetProps) {
-  // Cerrar con Escape
   const handleEscape = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -32,7 +37,6 @@ export function BottomSheet({
   useEffect(() => {
     if (isOpen && closable) {
       document.addEventListener("keydown", handleEscape);
-      // Bloquea scroll del body mientras está abierto
       document.body.style.overflow = "hidden";
       return () => {
         document.removeEventListener("keydown", handleEscape);
@@ -41,7 +45,6 @@ export function BottomSheet({
     }
   }, [isOpen, closable, handleEscape]);
 
-  // Cerrar tocando el backdrop
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget && closable) {
       onClose();
@@ -49,6 +52,8 @@ export function BottomSheet({
   };
 
   if (!isOpen) return null;
+
+  const resolvedMaxHeight = maxHeight === "auto" ? "85dvh" : maxHeight;
 
   return (
     <div
@@ -58,52 +63,53 @@ export function BottomSheet({
       role="dialog"
       aria-label={typeof title === 'string' ? title : 'Product quick add'}
     >
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/50 transition-opacity" />
 
-      {/* Sheet */}
       <div
-        className={`relative w-full bg-surface-container-low rounded-t-2xl shadow-2xl animate-slide-up ${
-          maxHeight !== "auto" ? `max-h-[${maxHeight}]` : ""
-        }`}
-        style={{ maxHeight }}
+        className="relative flex w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-surface-container-low shadow-2xl animate-slide-up"
+        style={{
+          maxHeight: resolvedMaxHeight,
+          ...(fullHeight ? { height: resolvedMaxHeight } : {}),
+        }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Drag handle */}
-        <div className="flex justify-center pt-2.5 pb-1.5">
-          <div className="w-9 h-1 rounded-full bg-outline-variant" />
+        <div className="flex shrink-0 justify-center pt-2.5 pb-1.5">
+          <div className="h-1 w-9 rounded-full bg-outline-variant" />
         </div>
 
-        {/* Header */}
         {(title || closable) && (
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-outline-variant/30">
+          <div className="flex shrink-0 items-center justify-between border-b border-outline-variant/30 px-4 py-2.5">
             {title && typeof title === 'string' ? (
               <h2 className="font-serif text-base font-bold text-on-surface">
                 {title}
               </h2>
             ) : (
-              <div className="flex-1 min-w-0">{title}</div>
+              <div className="min-w-0 flex-1">{title}</div>
             )}
             {closable && (
               <button
                 onClick={onClose}
-                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container transition-colors ml-auto"
+                className="ml-auto flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-surface-container"
                 aria-label="Cerrar"
               >
-                <X className="w-5 h-5 text-on-surface-variant" />
+                <X className="h-5 w-5 text-on-surface-variant" />
               </button>
             )}
           </div>
         )}
 
-        {/* Content */}
         <div
-          className={`px-4 pb-6 overflow-y-auto ${
-            maxHeight === "auto" ? "max-h-[80vh]" : ""
-          } ${contentClassName}`}
+          ref={scrollContainerRef}
+          className={`min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-4 [-webkit-overflow-scrolling:touch] ${contentClassName}`}
         >
           {children}
         </div>
+
+        {footer ? (
+          <div className="shrink-0 border-t border-outline-variant/20 bg-surface-container-low">
+            {footer}
+          </div>
+        ) : null}
       </div>
     </div>
   );

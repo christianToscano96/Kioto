@@ -1,4 +1,4 @@
-import { useState, memo } from "react";
+import { useRef, memo } from "react";
 import { Link } from "react-router-dom";
 import { usePrefetchProductDetail } from "@/hooks/usePrefetchProductDetail";
 import { OptimizedImage } from "./OptimizedImage";
@@ -45,6 +45,7 @@ export function ProductCardGrid({
   onAddToCart,
 }: ProductCardGridProps) {
   const { prefetchProps } = usePrefetchProductDetail(product._id);
+  const touchStartX = useRef(0);
 
   const nextImage = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -58,6 +59,26 @@ export function ProductCardGrid({
     setCurrentImageIndex((currentImageIndex - 1 + images.length) % images.length);
   };
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0]?.clientX ?? 0;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (images.length <= 1) return;
+
+    const touchEndX = e.changedTouches[0]?.clientX ?? 0;
+    const delta = touchEndX - touchStartX.current;
+
+    if (Math.abs(delta) < 48) return;
+
+    if (delta < 0) {
+      setCurrentImageIndex((currentImageIndex + 1) % images.length);
+      return;
+    }
+
+    setCurrentImageIndex((currentImageIndex - 1 + images.length) % images.length);
+  };
+
   return (
     <div 
       className="group relative bg-surface-container-low rounded-lg overflow-hidden"
@@ -65,7 +86,11 @@ export function ProductCardGrid({
     >
       {/* Image Container */}
       <Link to={`/products/${product._id}`} className="block">
-        <div className="aspect-[3/4] bg-surface-container rounded-lg overflow-hidden relative">
+        <div
+          className="aspect-[3/4] bg-surface-container rounded-lg overflow-hidden relative touch-pan-y"
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+        >
           {images.length > 0 && !imageError ? (
             <OptimizedImage
               src={images[currentImageIndex]}
@@ -117,19 +142,24 @@ export function ProductCardGrid({
             </>
           )}
 
-          {/* Image Indicators */}
+          {/* Image indicators — subtle dashes on desktop; swipe on mobile */}
           {images.length > 1 && totalStock > 0 && (
-            <div className="absolute bottom-1.5 sm:bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+            <div
+              className="absolute bottom-2 left-1/2 hidden -translate-x-1/2 items-center gap-1 rounded-full bg-black/25 px-2 py-1 backdrop-blur-[2px] sm:flex"
+              aria-hidden
+            >
               {images.map((_, idx) => (
                 <button
                   key={idx}
+                  type="button"
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     setCurrentImageIndex(idx);
                   }}
-                  className={`w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full transition-all ${
-                    idx === currentImageIndex ? "bg-white w-2 sm:w-3" : "bg-white/50"
+                  aria-label={`Ver imagen ${idx + 1}`}
+                  className={`h-0.5 rounded-full transition-all ${
+                    idx === currentImageIndex ? "w-3 bg-white" : "w-1 bg-white/45 hover:bg-white/70"
                   }`}
                 />
               ))}
