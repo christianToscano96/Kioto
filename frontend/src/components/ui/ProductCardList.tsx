@@ -109,16 +109,16 @@ export function ProductCardList({
             </p>
 
             {/* Specs compactos */}
-            {(product.materials || (product.sizes?.length ?? 0) > 0) && (
+            {(product.materials || availableSizes.length > 0) && (
               <div className="flex flex-wrap gap-2 mb-4">
                 {product.materials && (
                   <span className="bg-surface-container text-on-surface-variant text-xs px-2.5 py-1 rounded-full border border-outline-variant/30">
                     {product.materials}
                   </span>
                 )}
-                {(product.sizes?.length ?? 0) > 0 && (
+                {availableSizes.length > 0 && (
                   <span className="bg-surface-container text-on-surface-variant text-xs px-2.5 py-1 rounded-full border border-outline-variant/30">
-                    {product.sizes?.join(', ')}
+                    {availableSizes.join(', ')}
                   </span>
                 )}
               </div>

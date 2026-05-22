@@ -2,6 +2,7 @@ import { Eye, ChevronLeft, ChevronRight, Heart } from '@/components/icons';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Product } from '../../../../shared/src/index';
+import { getAvailableSizes, getInventoryMode, getTotalStock } from '@shared/index';
 
 interface ProductCardProps {
   product: Product;
@@ -70,9 +71,9 @@ export function ProductCard({ product, onQuickAdd }: ProductCardProps) {
   const [quantity, setQuantity] = useState(1);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
-  // Always show options if product has sizes defined
-  const hasSizes = product.sizes && product.sizes.length > 0;
-  const requiresSelection = hasSizes;
+  const inventoryMode = getInventoryMode(product);
+  const hasSizes = inventoryMode === 'size_color';
+  const requiresSelection = hasSizes || inventoryMode === 'color';
   
   // Image carousel logic
   const images = product.images && product.images.length > 0 
@@ -126,8 +127,8 @@ export function ProductCard({ product, onQuickAdd }: ProductCardProps) {
   };
 
   // Use product's sizes if available, otherwise default
-  const sizes = product.sizes && product.sizes.length > 0 ? product.sizes : ['S', 'M', 'L'];
-  const stock = product.stock ?? 0;
+  const sizes = getAvailableSizes(product);
+  const stock = getTotalStock(product);
 
   return (
     <div className="group bg-surface-container rounded-xl overflow-hidden transition-all duration-500 hover:shadow-xl border-l-2 border-dashed border-outline-variant">
@@ -216,13 +217,13 @@ export function ProductCard({ product, onQuickAdd }: ProductCardProps) {
         </Link>
 
         {/* Colors */}
-        {product.colors && product.colors.length > 0 && (
+        {product.inventoryMode === 'color' && product.colors && product.colors.length > 0 && (
           <div className="space-y-2">
             <span className="text-[10px] uppercase tracking-widest text-on-surface-variant">
               Colores
             </span>
-            <ColorSwatches 
-              colors={product.colors} 
+            <ColorSwatches
+              colors={product.colors.map((line) => line.color)}
               selectedColor={selectedColor}
               onSelectColor={setSelectedColor}
             />

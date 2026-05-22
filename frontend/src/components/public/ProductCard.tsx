@@ -2,6 +2,7 @@ import { Plus } from '@/components/icons';
 
 import { Link } from 'react-router-dom';
 import type { Product } from '../../../../shared/src/index';
+import { getTotalStock } from '@shared/index';
 import { ProductBadges } from '@/components/ui/ProductBadges';
 
 interface ProductCardProps {
@@ -18,6 +19,8 @@ export function ProductCard({ product, onQuickAdd, view = 'grid' }: ProductCardP
 
   // Determine if product is "new" (created in last 30 days)
   const isNew = product.createdAt && (new Date().getTime() - new Date(product.createdAt).getTime()) < 30 * 24 * 60 * 60 * 1000;
+
+  const totalStock = getTotalStock(product);
 
   if (view === 'list') {
     return (
@@ -64,7 +67,7 @@ export function ProductCard({ product, onQuickAdd, view = 'grid' }: ProductCardP
     <div className="group relative stitch-border-left pl-6">
       <Link to={`/products/${product._id}`} className="block">
         <div className="aspect-[3/4] bg-surface-container overflow-hidden mb-6 rounded-lg relative">
-          <ProductBadges isNew={isNew} stock={product.stock} />
+          <ProductBadges isNew={isNew} stock={totalStock} />
           {product.images && product.images.length > 0 ? (
             <img
               src={product.images[0]}

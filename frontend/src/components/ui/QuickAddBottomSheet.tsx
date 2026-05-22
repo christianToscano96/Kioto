@@ -1,23 +1,24 @@
-import { useMemo, useState, useCallback } from "react";
-import { Minus, Plus } from "@/components/icons";
-import { useCartStore } from "@/store/cart";
+import { useMemo, useState, useCallback } from 'react';
+import { Minus, Plus } from '@/components/icons';
+import { useCartStore } from '@/store/cart';
 import {
   useQuickAddPanel,
   useSetQuickAddSize,
   useSetQuickAddColor,
   useSetQuickAddQuantity,
   useResetQuickAdd,
-} from "@/store/ui";
-import { useToast } from "@/components/ui/Toast";
-import { BottomSheet } from "@/components/ui/BottomSheet";
+} from '@/store/ui';
+import { useToast } from '@/components/ui/Toast';
+import { BottomSheet } from '@/components/ui/BottomSheet';
 import {
-  getActiveVariants,
+  getActiveSizes,
   getAvailableColors,
   getColorStockMap,
   getMaxStock,
   getQuickAddError,
-} from "@/lib/quickAddStock";
-import type { Product, ProductVariant } from "@shared/index";
+} from '@/lib/quickAddStock';
+import { getInventoryMode, getSizeStock } from '@shared/index';
+import type { Product } from '@shared/index';
 
 interface QuickAddBottomSheetProps {
   products: Product[] | undefined;
@@ -39,44 +40,42 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
     [products, state.productId],
   );
 
-  const variants = useMemo(
-    () => (product?.variants as ProductVariant[]) || [],
-    [product],
-  );
-
   const images = useMemo(() => product?.images || [], [product?.images]);
-
-  const activeVariants = useMemo(() => getActiveVariants(variants), [variants]);
+  const inventoryMode = product ? getInventoryMode(product) : 'unit';
+  const activeSizes = useMemo(() => (product ? getActiveSizes(product) : []), [product]);
   const availableColors = useMemo(
-    () => getAvailableColors(variants, state.selectedSize),
-    [variants, state.selectedSize],
+    () => (product ? getAvailableColors(product, state.selectedSize || undefined) : []),
+    [product, state.selectedSize],
   );
-  const maxStock = useMemo(() => getMaxStock(variants, state), [variants, state]);
+  const maxStock = useMemo(
+    () => (product ? getMaxStock(product, state) : 0),
+    [product, state],
+  );
 
   const handleSubmit = useCallback(async () => {
-    const error = getQuickAddError(variants, state);
+    if (!product) return;
+    const error = getQuickAddError(product, state);
     if (error) {
-      addToast({ type: "error", title: error });
+      addToast({ type: 'error', title: error });
       return;
     }
 
     const finalColor =
-      state.selectedColor ||
-      (availableColors.length === 1 ? availableColors[0] : undefined);
+      state.selectedColor || (availableColors.length === 1 ? availableColors[0] : undefined);
 
     try {
-      await addToCart(product!, state.quantity, state.selectedSize, finalColor || undefined);
+      await addToCart(product, state.quantity, state.selectedSize || undefined, finalColor || undefined);
       addToast({
-        type: "success",
-        title: "¡Agregado!",
-        message: `${product!.name} fue agregado al carrito`,
+        type: 'success',
+        title: '¡Agregado!',
+        message: `${product.name} fue agregado al carrito`,
       });
       reset();
       setCurrentImageIndex(0);
     } catch {
-      addToast({ type: "error", title: "Error", message: "No se pudo agregar" });
+      addToast({ type: 'error', title: 'Error', message: 'No se pudo agregar' });
     }
-  }, [variants, state, availableColors, addToCart, product, addToast, reset]);
+  }, [product, state, availableColors, addToCart, addToast, reset]);
 
   const handleClose = useCallback(() => {
     reset();
@@ -85,18 +84,20 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
 
   if (!enabled || !state.productId || !product) return null;
 
+  const showSizeSelector = inventoryMode === 'size_color';
+  const showColorSelector =
+    inventoryMode === 'color' ||
+    (inventoryMode === 'size_color' && !!state.selectedSize && availableColors.length > 0);
+
   return (
     <BottomSheet
       isOpen={true}
       onClose={handleClose}
       title={
         <div className="flex items-center gap-3 min-w-0">
-          
           <div className="min-w-0">
             <p className="truncate text-xl font-medium">{product.name}</p>
-            <p className="text-sm text-on-surface-variant font-label">
-              ${product.price.toFixed(2)}
-            </p>
+            <p className="text-sm text-on-surface-variant font-label">${product.price.toFixed(2)}</p>
           </div>
         </div>
       }
@@ -104,7 +105,6 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
       closable
     >
       <div className="space-y-4 py-2">
-        {/* Galería de imágenes */}
         {images.length > 0 && (
           <div className="space-y-2">
             <div className="relative aspect-square rounded-xl overflow-hidden bg-surface-container border border-outline-variant/20">
@@ -113,71 +113,37 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
                 alt={`${product.name} - imagen ${currentImageIndex + 1}`}
                 className="w-full h-full object-cover"
               />
-              {images.length > 1 && (
-                <>
-                  <button
-                    onClick={() => setCurrentImageIndex((i) => (i === 0 ? images.length - 1 : i - 1))}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-surface/80 backdrop-blur-sm border border-outline-variant/30 flex items-center justify-center text-on-surface active:scale-95 transition-all"
-                    aria-label="Imagen anterior"
-                  >
-                    ‹
-                  </button>
-                  <button
-                    onClick={() => setCurrentImageIndex((i) => (i === images.length - 1 ? 0 : i + 1))}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-surface/80 backdrop-blur-sm border border-outline-variant/30 flex items-center justify-center text-on-surface active:scale-95 transition-all"
-                    aria-label="Imagen siguiente"
-                  >
-                    ›
-                  </button>
-                </>
-              )}
             </div>
-            {/* Dots indicator */}
-            {images.length > 1 && (
-              <div className="flex justify-center gap-1.5">
-                {images.map((_, index) => (
-                  <button
-                    key={index}
-                    onClick={() => setCurrentImageIndex(index)}
-                    className={`h-1.5 rounded-full transition-all ${
-                      index === currentImageIndex
-                        ? "w-6 bg-primary"
-                        : "w-1.5 bg-outline-variant/40 hover:bg-outline-variant"
-                    }`}
-                    aria-label={`Ir a imagen ${index + 1}`}
-                  />
-                ))}
-              </div>
-            )}
           </div>
         )}
-        {activeVariants.length > 0 && (
+
+        {showSizeSelector && (
           <div>
             <p className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant mb-2">Talla</p>
             <div className="flex flex-wrap gap-1.5">
-              {activeVariants.map((variant) => {
-                const totalStock = (variant.colorStock || []).reduce((sum, color) => sum + (color.stock || 0), 0);
-                const isOut = totalStock === 0;
-                const isActive = state.selectedSize === variant.size;
+              {activeSizes.map((size) => {
+                const sizeStock = getSizeStock(product, size);
+                const isOut = sizeStock === 0;
+                const isActive = state.selectedSize === size;
 
                 return (
                   <button
-                    key={variant.size}
+                    key={size}
                     onClick={() => {
-                      setSize(variant.size);
-                      setColor("");
+                      setSize(size);
+                      setColor('');
                       setQuantity(1);
                     }}
                     disabled={isOut}
                     className={`min-w-[40px] h-9 px-3 text-sm rounded-lg border transition-all font-medium ${
                       isActive
-                        ? "bg-primary text-on-primary border-primary"
+                        ? 'bg-primary text-on-primary border-primary'
                         : isOut
-                          ? "border-outline-variant/30 text-on-surface-variant/40 opacity-50 cursor-not-allowed line-through"
-                          : "border-outline-variant active:scale-95"
+                          ? 'border-outline-variant/30 text-on-surface-variant/40 opacity-50 cursor-not-allowed line-through'
+                          : 'border-outline-variant active:scale-95'
                     }`}
                   >
-                    {variant.size}
+                    {size}
                   </button>
                 );
               })}
@@ -185,12 +151,12 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
           </div>
         )}
 
-        {state.selectedSize && availableColors.length > 0 && (
+        {showColorSelector && (
           <div>
             <p className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant mb-2">Color</p>
             <div className="flex flex-wrap gap-2">
               {availableColors.map((color) => {
-                const colorStock = getColorStockMap(variants, state.selectedSize)[color] ?? 0;
+                const colorStock = getColorStockMap(product, state.selectedSize || undefined)[color] ?? 0;
                 const isOut = colorStock === 0;
                 const isActive = state.selectedColor === color;
 
@@ -201,22 +167,17 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
                     disabled={isOut}
                     className={`w-9 h-9 rounded-full border-2 transition-all ${
                       isActive
-                        ? "border-primary scale-110 ring-2 ring-primary/25"
+                        ? 'border-primary scale-110 ring-2 ring-primary/25'
                         : isOut
-                          ? "border-outline-variant/25 opacity-35 cursor-not-allowed grayscale"
-                          : "border-outline-variant active:scale-90"
+                          ? 'border-outline-variant/25 opacity-35 cursor-not-allowed grayscale'
+                          : 'border-outline-variant active:scale-90'
                     }`}
                     style={{ backgroundColor: color }}
-                    title={`${color}${colorStock > 0 ? ` · ${colorStock} en stock` : " · Agotado"}`}
+                    title={`${color}${colorStock > 0 ? ` · ${colorStock} en stock` : ' · Agotado'}`}
                   />
                 );
               })}
             </div>
-            {state.selectedColor && (
-              <p className="mt-1.5 text-[10px] font-mono text-primary">
-                {state.selectedColor} · {getColorStockMap(variants, state.selectedSize)[state.selectedColor]} unidades
-              </p>
-            )}
           </div>
         )}
 
@@ -241,7 +202,7 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
 
           <button
             onClick={handleSubmit}
-            disabled={!!getQuickAddError(variants, state)}
+            disabled={!!getQuickAddError(product, state)}
             className="bg-primary text-on-primary font-label text-xs uppercase tracking-wider px-5 py-2.5 rounded-lg disabled:opacity-40 active:scale-95 transition-all"
           >
             Agregar al carrito

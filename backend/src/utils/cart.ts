@@ -45,8 +45,8 @@ export const addToCart = async (
   // Check if item already exists in cart (same product + same size + same color)
   const existingItemIndex = cart.items.findIndex(
     item => item.productId.toString() === productId.toString() && 
-    (item as any).size === (resolvedStock.size ?? "") &&
-    (item as any).color === (resolvedStock.color ?? "")
+    (item as any).size === (resolvedStock.resolvedSize ?? "") &&
+    (item as any).color === (resolvedStock.resolvedColor ?? "")
   );
 
   if (existingItemIndex >= 0) {
@@ -61,8 +61,8 @@ export const addToCart = async (
       productId,
       quantity,
       price: product.price,
-      size: resolvedStock.size ?? "",
-      color: resolvedStock.color ?? "",
+      size: resolvedStock.resolvedSize ?? "",
+      color: resolvedStock.resolvedColor ?? "",
     } as any);
   }
   

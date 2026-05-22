@@ -95,7 +95,7 @@ export function ProductCardGrid({
 
           {/* Badges — más visibles con cards más grandes */}
           <div className="absolute top-3 sm:top-4 right-3 sm:right-4 flex flex-col gap-1.5 z-10">
-            {product.stock !== undefined && product.stock <= 5 && product.stock > 0 && (
+            {totalStock <= 5 && totalStock > 0 && (
               <span className="bg-verde-bosque-600 text-on-primary font-label text-[10px] sm:text-xs uppercase tracking-wider px-2 py-1 rounded-md shadow-sm">
                 Últimos
               </span>

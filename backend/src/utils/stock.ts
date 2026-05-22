@@ -1,86 +1,24 @@
 import { Types } from 'mongoose';
 import Product, { IProduct } from '../models/Product';
+import {
+  getTotalStock,
+  resolveInventory,
+  type InventorySelection,
+  type ResolvedInventory,
+} from './inventory';
 
-interface StockSelection {
-  size?: string;
-  color?: string;
-}
-
-interface ResolvedStockSelection {
-  size?: string;
-  color?: string;
-  availableStock: number;
-  usesVariant: boolean;
-  usesColorStock: boolean;
-}
-
-const normalizeOptional = (value?: string): string | undefined => {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
-};
+export type { InventorySelection, ResolvedInventory };
 
 export const resolveStockSelection = (
   product: IProduct,
-  selection: StockSelection = {},
-): ResolvedStockSelection => {
-  const variants = product.variants || [];
-  const size = normalizeOptional(selection.size);
-  const color = normalizeOptional(selection.color);
-
-  if (variants.length === 0) {
-    return {
-      size,
-      color,
-      availableStock: product.stock || 0,
-      usesVariant: false,
-      usesColorStock: false,
-    };
-  }
-
-  if (!size) {
-    throw new Error('Size is required for this product');
-  }
-
-  const variant = variants.find((item: any) => item.size === size);
-  if (!variant) {
-    throw new Error(`Size ${size} not available for this product`);
-  }
-
-  const colorStock = variant.colorStock || [];
-  if (colorStock.length === 0) {
-    return {
-      size,
-      color,
-      availableStock: variant.stock || 0,
-      usesVariant: true,
-      usesColorStock: false,
-    };
-  }
-
-  const resolvedColor = color || (colorStock.length === 1 ? colorStock[0].name : undefined);
-  if (!resolvedColor) {
-    throw new Error('Color is required for this product');
-  }
-
-  const colorEntry = colorStock.find((item: any) => item.name === resolvedColor);
-  if (!colorEntry) {
-    throw new Error(`Color ${resolvedColor} not available for size ${size}`);
-  }
-
-  return {
-    size,
-    color: resolvedColor,
-    availableStock: colorEntry.stock || 0,
-    usesVariant: true,
-    usesColorStock: true,
-  };
-};
+  selection: InventorySelection = {},
+): ResolvedInventory => resolveInventory(product, selection);
 
 export const assertStockAvailable = (
   product: IProduct,
   quantity: number,
-  selection: StockSelection = {},
-): ResolvedStockSelection => {
+  selection: InventorySelection = {},
+): ResolvedInventory => {
   const resolved = resolveStockSelection(product, selection);
 
   if (resolved.availableStock < quantity) {
@@ -93,16 +31,19 @@ export const assertStockAvailable = (
 export const deductProductStock = async (
   productId: Types.ObjectId | string,
   quantity: number,
-  selection: StockSelection = {},
-): Promise<ResolvedStockSelection> => {
-  const product = await Product.findById(productId).select('stock variants').exec();
+  selection: InventorySelection = {},
+): Promise<ResolvedInventory> => {
+  const product = await Product.findById(productId)
+    .select('inventoryMode stock colors sizeVariants')
+    .exec();
+
   if (!product) {
     throw new Error('Product not found');
   }
 
   const resolved = assertStockAvailable(product, quantity, selection);
 
-  if (!resolved.usesVariant) {
+  if (resolved.inventoryMode === 'unit') {
     const result = await Product.updateOne(
       { _id: product._id, stock: { $gte: quantity } },
       { $inc: { stock: -quantity } },
@@ -115,14 +56,13 @@ export const deductProductStock = async (
     return resolved;
   }
 
-  if (resolved.usesColorStock) {
+  if (resolved.inventoryMode === 'color') {
     const result = await Product.updateOne(
       { _id: product._id },
-      { $inc: { 'variants.$[variant].colorStock.$[color].stock': -quantity } },
+      { $inc: { 'colors.$[colorLine].stock': -quantity } },
       {
         arrayFilters: [
-          { 'variant.size': resolved.size },
-          { 'color.name': resolved.color, 'color.stock': { $gte: quantity } },
+          { 'colorLine.color': resolved.resolvedColor, 'colorLine.stock': { $gte: quantity } },
         ],
       },
     );
@@ -135,11 +75,14 @@ export const deductProductStock = async (
   }
 
   const result = await Product.updateOne(
+    { _id: product._id },
+    { $inc: { 'sizeVariants.$[sizeVariant].colors.$[colorLine].stock': -quantity } },
     {
-      _id: product._id,
-      variants: { $elemMatch: { size: resolved.size, stock: { $gte: quantity } } },
+      arrayFilters: [
+        { 'sizeVariant.size': resolved.resolvedSize },
+        { 'colorLine.color': resolved.resolvedColor, 'colorLine.stock': { $gte: quantity } },
+      ],
     },
-    { $inc: { 'variants.$.stock': -quantity } },
   );
 
   if (result.modifiedCount !== 1) {
@@ -152,35 +95,41 @@ export const deductProductStock = async (
 export const restoreProductStock = async (
   productId: Types.ObjectId | string,
   quantity: number,
-  selection: StockSelection = {},
+  selection: InventorySelection = {},
 ): Promise<void> => {
-  const product = await Product.findById(productId).select('stock variants').exec();
+  const product = await Product.findById(productId)
+    .select('inventoryMode stock colors sizeVariants')
+    .exec();
+
   if (!product) return;
 
   const resolved = resolveStockSelection(product, selection);
 
-  if (!resolved.usesVariant) {
+  if (resolved.inventoryMode === 'unit') {
     await Product.updateOne({ _id: product._id }, { $inc: { stock: quantity } });
     return;
   }
 
-  if (resolved.usesColorStock) {
+  if (resolved.inventoryMode === 'color') {
     await Product.updateOne(
       { _id: product._id },
-      { $inc: { 'variants.$[variant].colorStock.$[color].stock': quantity } },
+      { $inc: { 'colors.$[colorLine].stock': quantity } },
       {
-        arrayFilters: [
-          { 'variant.size': resolved.size },
-          { 'color.name': resolved.color },
-        ],
+        arrayFilters: [{ 'colorLine.color': resolved.resolvedColor }],
       },
     );
     return;
   }
 
   await Product.updateOne(
-    { _id: product._id, 'variants.size': resolved.size },
-    { $inc: { 'variants.$.stock': quantity } },
+    { _id: product._id },
+    { $inc: { 'sizeVariants.$[sizeVariant].colors.$[colorLine].stock': quantity } },
+    {
+      arrayFilters: [
+        { 'sizeVariant.size': resolved.resolvedSize },
+        { 'colorLine.color': resolved.resolvedColor },
+      ],
+    },
   );
 };
 
@@ -201,8 +150,8 @@ export const deductStockForItems = async (
       deducted.push({
         productId,
         quantity: item.quantity,
-        size: resolved.size,
-        color: resolved.color,
+        size: resolved.resolvedSize,
+        color: resolved.resolvedColor,
       });
     }
   } catch (error) {
@@ -212,3 +161,5 @@ export const deductStockForItems = async (
     throw error;
   }
 };
+
+export { getTotalStock };

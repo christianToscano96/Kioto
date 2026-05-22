@@ -197,8 +197,8 @@ router.post('/manual', async (req, res) => {
           productId: product._id,
           quantity: item.quantity,
           price: product.price,
-          size: resolvedStock.size,
-          color: resolvedStock.color,
+          size: resolvedStock.resolvedSize,
+          color: resolvedStock.resolvedColor,
         });
         total += product.price * item.quantity;
       } catch (stockError) {

@@ -33,7 +33,7 @@ router.post('/', validate(createCheckoutSchema), async (req: Request, res: Respo
     }
 
     // Populate product details
-    await cart.populate('items.productId', 'name images stock variants');
+    await cart.populate('items.productId', 'name images inventoryMode stock colors sizeVariants');
 
     // Check stock availability using the same variant/color rules as cart and webhooks
     for (const item of cart.items) {
@@ -188,7 +188,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       }
 
 // Check stock availability before creating order
-       await cart.populate('items.productId', 'name stock variants');
+       await cart.populate('items.productId', 'name inventoryMode stock colors sizeVariants');
        for (const item of cart.items) {
          const product = item.productId as any;
          try {
