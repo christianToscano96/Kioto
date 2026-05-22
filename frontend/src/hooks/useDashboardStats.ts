@@ -1,19 +1,34 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { ordersApi, adminProductsApi, cartApi } from "@/lib/api";
 import type { Order, Product } from "@shared/index";
 import { getTotalStock } from "@shared/index";
+import { formatChartShortDate, getStatusChartLabel } from "@/lib/dashboardCharts";
+
+export interface DashboardTrendPoint {
+  isoDate: string;
+  date: string;
+  sales: number;
+  orders: number;
+}
+
+export interface DashboardStatusSlice {
+  status: string;
+  label: string;
+  count: number;
+  value: number;
+}
 
 export interface DashboardStats {
   totalSales: number;
   orders: number;
   avgOrder: number;
-  newCustomers: number;
-  salesData?: { date: string; sales: number }[];
-  statusDistribution?: { status: string; count: number; value: number }[];
-  orderTrend?: { date: string; orders: number }[];
+  trendData: DashboardTrendPoint[];
+  salesData: Array<{ isoDate: string; date: string; sales: number }>;
+  statusDistribution: DashboardStatusSlice[];
+  orderTrend: Array<{ isoDate: string; date: string; orders: number }>;
   funnelData?: { stage: string; value: number; fill: string }[];
   topProducts?: { name: string; sales: number }[];
-  lowStockProducts?: { name: string; stock: number }[];
+  lowStockProducts?: { _id: string; name: string; stock: number }[];
   cartStats?: {
     totalCarts: number;
     abandonedCarts: number;
@@ -50,10 +65,12 @@ export function useDashboardStats({
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [totalPages, setTotalPages] = useState(1);
 
   const fetchDashboardData = async () => {
     setLoading(true);
+    setError(null);
     try {
       const params: { days?: number; from?: string; to?: string } = {};
       if (timeRange === "custom" && customFrom && customTo) {
@@ -79,12 +96,41 @@ export function useDashboardStats({
       const ordersCount = orders.length;
       const avgOrder = ordersCount > 0 ? totalSales / ordersCount : 0;
 
-      // Group sales by date for chart
+      // Group sales and orders by ISO date for charts
       const salesByDate = orders.reduce<Record<string, number>>((acc, o: Order) => {
-        const date = new Date(o.createdAt).toLocaleDateString("es-AR");
-        acc[date] = (acc[date] || 0) + o.total;
+        const key = new Date(o.createdAt).toISOString().slice(0, 10);
+        acc[key] = (acc[key] || 0) + o.total;
         return acc;
       }, {});
+
+      const ordersByDate = orders.reduce<Record<string, number>>((acc, o: Order) => {
+        const key = new Date(o.createdAt).toISOString().slice(0, 10);
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+
+      const isoDates = Array.from(
+        new Set([...Object.keys(salesByDate), ...Object.keys(ordersByDate)]),
+      ).sort();
+
+      const trendData: DashboardTrendPoint[] = isoDates.map((isoDate) => ({
+        isoDate,
+        date: formatChartShortDate(isoDate),
+        sales: salesByDate[isoDate] ?? 0,
+        orders: ordersByDate[isoDate] ?? 0,
+      }));
+
+      const salesData = trendData.map(({ isoDate, date, sales }) => ({
+        isoDate,
+        date,
+        sales,
+      }));
+
+      const orderTrend = trendData.map(({ isoDate, date, orders: dayOrders }) => ({
+        isoDate,
+        date,
+        orders: dayOrders,
+      }));
 
       // Status distribution for pie chart
       const statusCount = orders.reduce<Record<string, number>>((acc, o: Order) => {
@@ -92,11 +138,14 @@ export function useDashboardStats({
         return acc;
       }, {});
 
-      const statusDistribution = Object.entries(statusCount).map(([status, count]) => ({
-        status,
-        count,
-        value: count,
-      }));
+      const statusDistribution: DashboardStatusSlice[] = Object.entries(statusCount)
+        .map(([status, count]) => ({
+          status,
+          label: getStatusChartLabel(status),
+          count,
+          value: count,
+        }))
+        .sort((a, b) => b.count - a.count);
 
       // Top products from order items
       const productSales: Record<string, { name: string; sales: number }> = {};
@@ -115,33 +164,16 @@ export function useDashboardStats({
         .slice(0, 5);
 
       const lowStockProducts = products
-        .map((p: Product) => ({ name: p.name, stock: getTotalStock(p) }))
+        .map((p: Product) => ({ _id: p._id, name: p.name, stock: getTotalStock(p) }))
         .filter((p) => p.stock < 5)
         .sort((a, b) => a.stock - b.stock)
         .slice(0, 5);
-
-      // Time series data
-      const ordersByDate = orders.reduce<Record<string, number>>((acc, o: Order) => {
-        const date = new Date(o.createdAt).toLocaleDateString("es-AR");
-        acc[date] = (acc[date] || 0) + 1;
-        return acc;
-      }, {});
-
-      const salesData = Object.entries(salesByDate)
-        .map(([date, sales]) => ({ date, sales }))
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-        .slice(-7);
-
-      const orderTrend = Object.entries(ordersByDate)
-        .map(([date, orders]) => ({ date, orders }))
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-        .slice(-7);
 
       setStats({
         totalSales,
         orders: ordersCount,
         avgOrder,
-        newCustomers: 24,
+        trendData,
         salesData,
         statusDistribution,
         orderTrend,
@@ -150,10 +182,10 @@ export function useDashboardStats({
         cartStats,
         funnelData: cartStats
           ? [
-              { stage: "Carritos", value: cartStats.totalCarts, fill: "#3b82f6" },
-              { stage: "Abandonados", value: cartStats.abandonedCarts, fill: "#ef4444" },
-              { stage: "Convertidos", value: cartStats.convertedCarts, fill: "#10b981" },
-              { stage: "Pedidos", value: ordersCount, fill: "#8b5cf6" },
+              { stage: "Carritos", value: cartStats.totalCarts, fill: "#99452c" },
+              { stage: "Abandonados", value: cartStats.abandonedCarts, fill: "#dc2626" },
+              { stage: "Convertidos", value: cartStats.convertedCarts, fill: "#2e6b4f" },
+              { stage: "Pedidos", value: ordersCount, fill: "#c27e41" },
             ]
           : undefined,
       });
@@ -177,8 +209,10 @@ export function useDashboardStats({
           _id: o._id,
         }));
       setRecentOrders(recent);
-    } catch (error) {
-      console.error("Failed to fetch dashboard data:", error);
+    } catch (fetchError) {
+      console.error("Failed to fetch dashboard data:", fetchError);
+      setStats(null);
+      setError("No se pudieron cargar los datos del tablero.");
     } finally {
       setLoading(false);
     }
@@ -192,6 +226,7 @@ export function useDashboardStats({
     stats,
     recentOrders,
     loading,
+    error,
     totalPages,
     refetch: fetchDashboardData,
   };

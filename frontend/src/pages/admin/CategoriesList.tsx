@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { useCategoriesStore } from "@/store/categories";
 import { showToast } from "@/components/ui/Toast";
 import { Plus, Edit2, Trash2 } from '@/components/icons';
@@ -36,12 +37,23 @@ export function CategoriesList() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="p-4 bg-terracota-50 text-terracota-700 rounded-lg">
+        Error al cargar categorías. Por favor, intenta de nuevo.
+      </div>
+    );
+  }
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-serif font-bold text-on-surface">
-          Categorías
-        </h1>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between mb-8">
+        <PageHeader
+          title="Categorías"
+          description="Organiza el catálogo por colecciones y tipos de producto."
+          eyebrow="Panel de Administración"
+          className="mb-0"
+        />
         <Link to="/admin/categories/new">
           <Button>
             <Plus />

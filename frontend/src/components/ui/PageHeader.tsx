@@ -1,12 +1,15 @@
+import { cn } from '@/lib/utils';
+
 interface PageHeaderProps {
   title: string;
   description?: string;
   eyebrow?: string;
+  className?: string;
 }
 
-export function PageHeader({ title, description, eyebrow }: PageHeaderProps) {
+export function PageHeader({ title, description, eyebrow, className }: PageHeaderProps) {
   return (
-    <div className="mb-12">
+    <div className={cn('mb-8', className)}>
       {eyebrow && (
         <span className="label-md uppercase tracking-[0.2em] text-primary text-xs font-bold">
           {eyebrow}

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -135,7 +135,7 @@ export function ProductForm() {
   const isEdit = !!id;
 
   const products = useProductsStore((state) => state.products);
-  const isLoading = useProductsStore((state) => state.isLoadingAdmin);
+  const isSaving = useProductsStore((state) => state.isLoadingAdmin);
   const createProduct = useProductsStore((state) => state.createProduct);
   const updateProduct = useProductsStore((state) => state.updateProduct);
   const fetchAdminProducts = useProductsStore((state) => state.fetchAdminProducts);
@@ -144,6 +144,7 @@ export function ProductForm() {
   const fetchCategories = useCategoriesStore((state) => state.fetchCategories);
 
   const product = products?.find((p: Product) => p._id === id);
+  const [catalogLoaded, setCatalogLoaded] = useState(!isEdit);
 
   const {
     formData,
@@ -163,9 +164,31 @@ export function ProductForm() {
   } = useProductForm({ product, isEdit });
 
   useEffect(() => {
-    fetchAdminProducts();
+    void fetchAdminProducts().finally(() => setCatalogLoaded(true));
     fetchCategories();
   }, [fetchAdminProducts, fetchCategories]);
+
+  if (isEdit && !catalogLoaded) {
+    return (
+      <div className="max-w-6xl mx-auto animate-pulse space-y-6">
+        <div className="h-8 bg-surface-container-low rounded w-48" />
+        <div className="h-64 bg-surface-container-low rounded-xl" />
+        <div className="h-48 bg-surface-container-low rounded-xl" />
+      </div>
+    );
+  }
+
+  if (isEdit && catalogLoaded && !product) {
+    return (
+      <div className="max-w-6xl mx-auto text-center py-16">
+        <h1 className="text-2xl font-serif font-bold text-on-surface mb-2">Producto no encontrado</h1>
+        <p className="text-sm text-on-surface-variant mb-6">
+          El producto que buscás no existe o fue eliminado.
+        </p>
+        <Button onClick={() => navigate('/admin/products')}>Volver a productos</Button>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -487,7 +510,7 @@ export function ProductForm() {
         <Button variant="ghost" size="sm" onClick={() => navigate('/admin/products')}>
           Cancelar
         </Button>
-        <Button type="submit" size="sm" disabled={isLoading} form="product-form">
+        <Button type="submit" size="sm" disabled={isSaving} form="product-form">
           <Save size={16} />
           {isEdit ? 'Actualizar' : 'Crear'} Producto
         </Button>

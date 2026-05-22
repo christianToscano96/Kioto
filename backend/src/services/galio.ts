@@ -19,30 +19,111 @@ export interface GalioPaymentLink {
   sandbox: boolean;
 }
 
+interface GalioRuntimeConfig {
+  apiKey: string;
+  clientId: string;
+  sandbox: boolean;
+}
+
 // Cache settings for 5 minutes
-let settingsCache: { apiKey: string; clientId: string } | null = null;
+let settingsCache: GalioRuntimeConfig | null = null;
 let settingsCacheTime = 0;
 
-async function getGalioSettings() {
+export function resetGalioSettingsCache() {
+  settingsCache = null;
+  settingsCacheTime = 0;
+}
+
+async function getGalioSettings(): Promise<GalioRuntimeConfig> {
   const now = Date.now();
   if (settingsCache && now - settingsCacheTime < 5 * 60 * 1000) {
     return settingsCache;
   }
 
-  // Try database first
   const settings = await Settings.findOne().select('payments.galio');
-  
-  // Fallback to .env if not in database
+
   const apiKey = settings?.payments?.galio?.apiKey || process.env.GALIO_API_KEY;
   const clientId = settings?.payments?.galio?.clientId || process.env.GALIO_CLIENT_ID;
+  const sandbox =
+    typeof settings?.payments?.galio?.sandbox === 'boolean'
+      ? settings.payments.galio.sandbox
+      : process.env.GALIO_SANDBOX === 'true';
 
   if (!apiKey || !clientId) {
     throw new Error('GalioPay not configured');
   }
 
-  settingsCache = { apiKey, clientId };
+  settingsCache = { apiKey, clientId, sandbox };
   settingsCacheTime = now;
   return settingsCache;
+}
+
+export async function getGalioSandbox(): Promise<boolean> {
+  const { sandbox } = await getGalioSettings();
+  return sandbox;
+}
+
+export interface GalioConnectionOverrides {
+  apiKey?: string;
+  clientId?: string;
+  sandbox?: boolean;
+}
+
+export async function testGalioConnection(
+  overrides?: GalioConnectionOverrides,
+): Promise<{ ok: true; sandbox: boolean; message: string }> {
+  const settings = await Settings.findOne().select('payments.galio').lean();
+
+  const apiKey =
+    overrides?.apiKey?.trim() ||
+    settings?.payments?.galio?.apiKey ||
+    process.env.GALIO_API_KEY;
+  const clientId =
+    overrides?.clientId?.trim() ||
+    settings?.payments?.galio?.clientId ||
+    process.env.GALIO_CLIENT_ID;
+  const sandbox =
+    typeof overrides?.sandbox === 'boolean'
+      ? overrides.sandbox
+      : typeof settings?.payments?.galio?.sandbox === 'boolean'
+        ? settings.payments.galio.sandbox
+        : process.env.GALIO_SANDBOX === 'true';
+
+  if (!apiKey || !clientId) {
+    throw new Error('Faltan API Key o Client ID de GalioPay');
+  }
+
+  const response = await fetch('https://pay.galio.app/api/payments/000000000000000000000001', {
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+      'x-client-id': clientId,
+    },
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    throw new Error('Credenciales de GalioPay inválidas');
+  }
+
+  if (response.status === 404 || response.ok) {
+    return {
+      ok: true,
+      sandbox,
+      message: sandbox
+        ? 'Conexión verificada en modo sandbox'
+        : 'Conexión verificada en modo producción',
+    };
+  }
+
+  let errorMessage = `GalioPay respondió con error (${response.status})`;
+  try {
+    const errorData = (await response.json()) as { error?: string };
+    if (errorData.error) errorMessage = errorData.error;
+  } catch {
+    // ignore parse errors
+  }
+
+  throw new Error(errorMessage);
 }
 
 export async function getPayment(paymentId: string): Promise<GalioPayment> {

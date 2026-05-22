@@ -9,6 +9,7 @@ import {
   ClipboardList,
   Settings,
   LogOut,
+  X,
 } from "@/components/icons";
 
 const navItems = [
@@ -19,37 +20,52 @@ const navItems = [
   { to: "/admin/settings", label: "Configuración", icon: Settings },
 ];
 
-export function AdminSidebar() {
+interface AdminSidebarProps {
+  mobileOpen?: boolean;
+  onNavigate?: () => void;
+}
+
+export function AdminSidebar({ mobileOpen = false, onNavigate }: AdminSidebarProps) {
   const logout = useAuthStore((state) => state.logout);
 
   const handleLogout = async () => {
     await logout();
-    window.location.href = '/login';
+    window.location.href = "/login";
   };
 
   return (
-    <aside className="w-64 bg-background border-r border-outline/40 min-h-screen flex flex-col">
-      {/* Brand Header */}
-      <div className="p-6 ">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-serif font-bold text-on-surface tracking-tight">
-              Kioto
-            </h1>
-            <p className="text-xs text-on-surface-variant/70 font-medium tracking-widest uppercase mt-1">
-              Panel de Control
-            </p>
-          </div>
+    <aside
+      className={cn(
+        "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-outline/40 bg-background transition-transform duration-200 lg:static lg:z-auto lg:translate-x-0",
+        mobileOpen ? "translate-x-0" : "-translate-x-full",
+      )}
+    >
+      <div className="flex items-start justify-between p-6">
+        <div>
+          <h1 className="text-2xl font-serif font-bold text-on-surface tracking-tight">
+            Kioto
+          </h1>
+          <p className="text-xs text-on-surface-variant/70 font-medium tracking-widest uppercase mt-1">
+            Panel de Control
+          </p>
         </div>
+        <button
+          type="button"
+          onClick={onNavigate}
+          className="rounded-lg p-2 text-on-surface-variant hover:bg-surface lg:hidden"
+          aria-label="Cerrar menú"
+        >
+          <Icon icon={X} size={20} />
+        </button>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-1">
+      <nav className="flex-1 space-y-1 overflow-y-auto p-4">
         {navItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.exact}
+            onClick={onNavigate}
             className={({ isActive }) =>
               cn(
                 "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200",
@@ -69,11 +85,11 @@ export function AdminSidebar() {
         ))}
       </nav>
 
-      {/* Footer */}
-      <div className="p-4 border-t border-outline/40">
+      <div className="border-t border-outline/40 p-4">
         <button
+          type="button"
           onClick={handleLogout}
-          className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-on-surface-variant hover:bg-surface hover:text-on-surface w-full transition-colors"
+          className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium text-on-surface-variant transition-colors hover:bg-surface hover:text-on-surface"
         >
           <span className="shrink-0 text-inherit">
             <Icon icon={LogOut} size={24} />

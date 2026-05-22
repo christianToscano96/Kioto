@@ -177,6 +177,12 @@ export const settingsApi = {
 
   update: (settings: Settings) =>
     api.put<{ settings: Settings }>('/settings', { settings }),
+
+  testGalio: (data?: { apiKey?: string; clientId?: string; sandbox?: boolean }) =>
+    api.post<{ ok: true; sandbox: boolean; message: string }>('/settings/test/galio', data),
+
+  testEmail: (data?: { pass?: string; from?: string; user?: string }) =>
+    api.post<{ ok: true; message: string }>('/settings/test/email', data),
 };
 
 // Profile API

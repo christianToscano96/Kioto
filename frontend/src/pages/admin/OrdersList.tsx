@@ -13,6 +13,7 @@ import { ManualOrderModal } from '@/components/ui/ManualOrderModal';
 import { ShippingLabelModal } from '@/components/ui/ShippingLabelModal';
 import type { Order } from '../../../../shared/src';
 import { showToast } from '@/components/ui/Toast';
+import { rowsToCsv } from '@/lib/utils';
 
 const ORDER_STATUS: Order['status'][] = ['pending', 'paid', 'failed', 'processing', 'shipped', 'delivered', 'cancelled'];
 const STATUS_LABELS: Record<Order['status'], string> = {
@@ -134,6 +135,20 @@ export function OrdersList() {
     setShowLabelModal(true);
   };
 
+  const hasActiveFilters =
+    Boolean(searchTerm) ||
+    statusFilter !== 'all' ||
+    Boolean(dateFrom) ||
+    Boolean(dateTo);
+
+  const clearFilters = () => {
+    setSearchTerm('');
+    setStatusFilter('all');
+    setDateFrom('');
+    setDateTo('');
+    setCurrentPage(1);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -197,20 +212,24 @@ export function OrdersList() {
             </>
           )}
           <Button variant="outline" onClick={() => {
-            const csv = [
+            const csv = rowsToCsv([
               ['ID', 'Cliente', 'Email', 'Total', 'Estado', 'Fecha'],
-              ...filteredOrders.map(o => [
-                o._id, o.shippingDetails?.name || '', o.shippingDetails?.email || '',
-                o.total.toFixed(2), STATUS_LABELS[o.status],
-                new Date(o.createdAt).toLocaleDateString('es-ES')
-              ].join(','))
-            ].join('\n');
-            const blob = new Blob([csv], { type: 'text/csv' });
+              ...filteredOrders.map((o) => [
+                o._id,
+                o.shippingDetails?.name || '',
+                o.shippingDetails?.email || '',
+                o.total.toFixed(2),
+                STATUS_LABELS[o.status],
+                new Date(o.createdAt).toLocaleDateString('es-ES'),
+              ]),
+            ]);
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
             a.download = `pedidos-${new Date().toISOString().split('T')[0]}.csv`;
             a.click();
+            URL.revokeObjectURL(url);
           }}>Exportar CSV</Button>
           <Button onClick={() => setShowManualModal(true)}>
             <Plus size={20} />Crear Pedido Manual
@@ -226,6 +245,20 @@ export function OrdersList() {
       <ShippingLabelModal open={showLabelModal} onClose={() => setShowLabelModal(false)} orderId={selectedOrderForLabel} />
 
       <div className="bg-surface-container-low rounded-lg border border-outline-variant/30 overflow-hidden">
+        {filteredOrders.length === 0 ? (
+          <div className="p-10 text-center text-on-surface-variant">
+            <p className="mb-4">
+              {hasActiveFilters
+                ? 'Ningún pedido coincide con tus filtros.'
+                : 'Aún no hay pedidos registrados.'}
+            </p>
+            {hasActiveFilters && (
+              <Button variant="outline" onClick={clearFilters}>
+                Limpiar filtros
+              </Button>
+            )}
+          </div>
+        ) : (
         <DataTable
           columns={[
             { key: undefined, label: '', render: (_, row) => (
@@ -261,9 +294,10 @@ export function OrdersList() {
           data={paginatedOrders}
           actions={(row) => <OrderActions orderId={row._id} status={row.status} galioPaymentId={row.galioPaymentId} onPrintLabel={handlePrintLabel} />}
         />
+        )}
       </div>
 
-      {totalPages > 1 && (
+      {totalPages > 1 && filteredOrders.length > 0 && (
         <div className="flex items-center justify-between">
           <p className="text-sm text-on-surface-variant">
             Mostrando {(currentPage - 1) * ITEMS_PER_PAGE + 1} al {Math.min(currentPage * ITEMS_PER_PAGE, filteredOrders.length)} de {filteredOrders.length} pedidos
@@ -292,10 +326,6 @@ export function OrdersList() {
             </button>
           </div>
         </div>
-      )}
-
-      {orders?.length === 0 && (
-        <div className="p-8 text-center text-on-surface-variant">No se encontraron pedidos.</div>
       )}
     </div>
   );

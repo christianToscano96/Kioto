@@ -14,15 +14,16 @@ export function CategoryForm() {
   const isEdit = !!id;
 
   const categories = useCategoriesStore((state) => state.categories);
-  const isLoading = useCategoriesStore((state) => state.isLoadingAdmin);
+  const isSaving = useCategoriesStore((state) => state.isLoadingAdmin);
   const createCategory = useCategoriesStore((state) => state.createCategory);
   const updateCategory = useCategoriesStore((state) => state.updateCategory);
   const fetchCategories = useCategoriesStore((state) => state.fetchCategories);
 
   const category = categories?.find((c: Category) => c._id === id);
+  const [catalogLoaded, setCatalogLoaded] = useState(!isEdit);
 
   useEffect(() => {
-    fetchCategories();
+    void fetchCategories().finally(() => setCatalogLoaded(true));
   }, [fetchCategories]);
 
   const [formData, setFormData] = useState({
@@ -41,6 +42,27 @@ export function CategoryForm() {
       });
     }
   }, [isEdit, category]);
+
+  if (isEdit && !catalogLoaded) {
+    return (
+      <div className="max-w-2xl mx-auto animate-pulse space-y-6">
+        <div className="h-8 bg-surface-container-low rounded w-48" />
+        <div className="h-40 bg-surface-container-low rounded-xl" />
+      </div>
+    );
+  }
+
+  if (isEdit && catalogLoaded && !category) {
+    return (
+      <div className="max-w-2xl mx-auto text-center py-16">
+        <h1 className="text-2xl font-serif font-bold text-on-surface mb-2">Categoría no encontrada</h1>
+        <p className="text-sm text-on-surface-variant mb-6">
+          La categoría que buscás no existe o fue eliminada.
+        </p>
+        <Button onClick={() => navigate("/admin/categories")}>Volver a categorías</Button>
+      </div>
+    );
+  }
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -115,7 +137,7 @@ export function CategoryForm() {
         </div>
 
         <div className="flex gap-4">
-          <Button type="submit" disabled={isLoading}>
+          <Button type="submit" disabled={isSaving}>
             <Check />
             {isEdit ? "Actualizar Categoría" : "Crear Categoría"}
           </Button>
