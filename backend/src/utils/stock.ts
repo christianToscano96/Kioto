@@ -162,4 +162,18 @@ export const deductStockForItems = async (
   }
 };
 
+export const restoreStockForItems = async (
+  items: Array<{ productId: Types.ObjectId | string | IProduct; quantity: number; size?: string; color?: string }>,
+): Promise<void> => {
+  for (const item of items) {
+    const productId = typeof item.productId === 'object' && '_id' in item.productId
+      ? item.productId._id
+      : item.productId;
+    await restoreProductStock(productId, item.quantity, {
+      size: item.size,
+      color: item.color,
+    });
+  }
+};
+
 export { getTotalStock };

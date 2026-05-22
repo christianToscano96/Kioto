@@ -14,8 +14,9 @@ import {
 import Cart from '../models/Cart';
 import Order from '../models/Order';
 import { assertStockAvailable, deductStockForItems } from '../utils/stock';
-import { sendOrderConfirmationEmail, sendAdminNotificationEmail } from '../services/email';
-import { createPaymentLink } from '../services/galio';
+import { sendOrderConfirmationEmail } from '../services/email';
+import { createPaymentLink, getPayment } from '../services/galio';
+import { isGalioPaymentApproved, markOrderAsPaid } from '../utils/orderPayment';
 
 const router = Router();
 
@@ -115,7 +116,7 @@ router.post('/', validate(createCheckoutSchema), async (req: Request, res: Respo
       shippingDetails,
     });
 
-// Create notification for admin
+// Create lightweight admin notification (payment still pending)
     const { notifyNewOrder } = await import('../utils/notifications');
     notifyNewOrder(order._id.toString()).catch(console.error);
 
@@ -146,28 +147,22 @@ router.post('/', validate(createCheckoutSchema), async (req: Request, res: Respo
         items: galioItems,
         referenceId: order._id.toString(),
         backUrl: {
-          success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/checkout/success?orderId=${order._id}`,
-          failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/checkout/cancel`,
+          success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/checkout/success?orderId=${order._id}&delivery=${deliveryMethod}`,
+          failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/checkout/cancel?orderId=${order._id}`,
         },
         notificationUrl: `${process.env.PUBLIC_API_URL || 'http://localhost:4000'}/api/webhooks/galio`,
         sandbox: process.env.GALIO_SANDBOX === 'true',
       });
 
-      order.galioPaymentId = galioLink.url;
+      order.paymentUrl = galioLink.url;
       paymentUrl = galioLink.url;
       await order.save();
     } catch (galioError) {
       console.error('GalioPay error creating payment link:', galioError);
       paymentUrl = `https://pay.galio.app/pay/${order._id}`;
+      order.paymentUrl = paymentUrl;
+      await order.save();
     }
-
-// Send order confirmation email (async, don't wait)
-     sendOrderConfirmationEmail(order, (order._id as any).toString())
-       .then(() => console.log(`[EMAIL] Order confirmation sent for ${order._id}`))
-       .catch((err) => console.error(`[EMAIL-ERROR] Order confirmation failed for ${order._id}:`, err));
-     sendAdminNotificationEmail(order, (order._id as any).toString(), order.shippingDetails?.name || 'Cliente')
-       .then(() => console.log(`[EMAIL] Admin notification sent for ${order._id}`))
-       .catch((err) => console.error(`[EMAIL-ERROR] Admin notification failed for ${order._id}:`, err));
 
     res.status(200).json({
       orderId: order._id,
@@ -184,6 +179,66 @@ router.post('/', validate(createCheckoutSchema), async (req: Request, res: Respo
   } catch (error) {
     console.error('Checkout error:', error);
     res.status(500).json({ error: 'Failed to create checkout session' });
+  }
+});
+
+// GET /api/checkout/order/:orderId/status - Public status for success page (session-bound)
+router.get('/order/:orderId/status', async (req: Request, res: Response) => {
+  try {
+    const sessionId = getSessionId(req);
+    const order = await Order.findById(req.params.orderId).select('status sessionId deliveryMethod total');
+
+    if (!order || order.sessionId !== sessionId) {
+      res.status(404).json({ error: 'Order not found' });
+      return;
+    }
+
+    res.json({
+      orderId: order._id,
+      status: order.status,
+      deliveryMethod: order.deliveryMethod,
+      total: order.total,
+    });
+  } catch (error) {
+    console.error('Order status error:', error);
+    res.status(500).json({ error: 'Failed to fetch order status' });
+  }
+});
+
+// POST /api/checkout/order/:orderId/confirm-payment - Sync payment after Galio redirect
+router.post('/order/:orderId/confirm-payment', async (req: Request, res: Response) => {
+  try {
+    const sessionId = getSessionId(req);
+    const order = await Order.findById(req.params.orderId);
+
+    if (!order || order.sessionId !== sessionId) {
+      res.status(404).json({ error: 'Order not found' });
+      return;
+    }
+
+    if (order.status === 'paid') {
+      res.json({ status: 'paid', alreadyProcessed: true });
+      return;
+    }
+
+    const paymentId = (req.body?.paymentId as string | undefined)
+      || (typeof order.galioPaymentId === 'string' && !order.galioPaymentId.startsWith('http')
+        ? order.galioPaymentId
+        : undefined);
+
+    if (paymentId) {
+      const payment = await getPayment(paymentId);
+      if (isGalioPaymentApproved(payment.status)) {
+        const result = await markOrderAsPaid(order, { galioPaymentId: paymentId });
+        res.json({ status: 'paid', alreadyProcessed: result.alreadyProcessed });
+        return;
+      }
+    }
+
+    res.json({ status: order.status });
+  } catch (error) {
+    console.error('Confirm payment error:', error);
+    res.status(500).json({ error: 'Failed to confirm payment' });
   }
 });
 
@@ -311,37 +366,5 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
   res.json({ received: true });
 });
-
-// Async GalioPay payment link creation (doesn't block checkout response)
-async function createGalioPayLinkAsync(orderId: string, items: any[]) {
-  try {
-    const order = await Order.findById(orderId);
-    if (!order) return;
-
-    const galioItems = items.map((item: any) => ({
-      title: (item.productId as any)?.name || 'Product',
-      quantity: item.quantity,
-      unitPrice: item.price,
-      currencyId: 'ARS',
-    }));
-
-    const galioLink = await createPaymentLink({
-      items: galioItems,
-      referenceId: orderId,
-      backUrl: {
-        success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/checkout/success?orderId=${orderId}`,
-        failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/checkout/cancel`,
-      },
-      notificationUrl: `${process.env.PUBLIC_API_URL || 'http://localhost:4000'}/api/webhooks/galio`,
-      sandbox: process.env.GALIO_SANDBOX === 'true',
-    });
-
-    // Update order with GalioPay link
-    order.galioPaymentId = galioLink.url;
-    await order.save();
-  } catch (error) {
-    console.error('Async GalioPay error:', error);
-  }
-}
 
 export default router;

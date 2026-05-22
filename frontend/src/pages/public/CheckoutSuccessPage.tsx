@@ -1,21 +1,82 @@
 import { Link, useSearchParams } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { PublicHeader } from "@/components/layout/PublicHeader";
 import { Footer } from "@/components/layout/Footer";
 import { useCartStore } from "@/store/cart";
 import { LazyVideo } from '@/components/ui/LazyVideo';
-import { ShoppingBag } from '@/components/icons';
+import { Loader2, ShoppingBag } from '@/components/icons';
 import { PICKUP_POINT } from '@shared/index';
+import { api } from "@/lib/api";
+
+type PaymentStatus = 'confirming' | 'paid' | 'pending';
 
 export function CheckoutSuccessPage() {
   const [searchParams] = useSearchParams();
   const orderId = searchParams.get("orderId");
   const delivery = searchParams.get("delivery");
   const clear = useCartStore((state) => state.clear);
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('confirming');
 
   useEffect(() => {
     clear();
   }, [clear]);
+
+  useEffect(() => {
+    if (!orderId) {
+      setPaymentStatus('pending');
+      return;
+    }
+
+    let cancelled = false;
+    let attempts = 0;
+
+    const syncPayment = async () => {
+      try {
+        await api.post(`/checkout/order/${orderId}/confirm-payment`, {
+          paymentId: searchParams.get('paymentId') || undefined,
+        });
+      } catch {
+        // Webhook may still confirm the payment.
+      }
+    };
+
+    const pollStatus = async () => {
+      if (cancelled) return;
+
+      try {
+        const response = await api.get(`/checkout/order/${orderId}/status`);
+        const status = response.data?.status;
+
+        if (status === 'paid') {
+          setPaymentStatus('paid');
+          return;
+        }
+
+        if (status === 'failed') {
+          setPaymentStatus('pending');
+          return;
+        }
+      } catch {
+        // Keep polling while payment confirmation is in progress.
+      }
+
+      attempts += 1;
+      if (attempts < 15 && !cancelled) {
+        window.setTimeout(pollStatus, 2000);
+        return;
+      }
+
+      setPaymentStatus('pending');
+    };
+
+    void syncPayment().finally(() => {
+      void pollStatus();
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId, searchParams]);
 
   const isPickup = delivery === 'pickup';
 
@@ -36,11 +97,25 @@ export function CheckoutSuccessPage() {
           </div>
 
           <h1 className="font-serif text-4xl md:text-5xl font-bold text-on-surface mb-4">
-            ¡Gracias por tu compra!
+            {paymentStatus === 'confirming'
+              ? 'Confirmando tu pago...'
+              : paymentStatus === 'paid'
+                ? '¡Gracias por tu compra!'
+                : 'Pedido registrado'}
           </h1>
 
+          {paymentStatus === 'confirming' && (
+            <div className="flex justify-center mb-4">
+              <Loader2 className="animate-spin h-6 w-6 text-primary" />
+            </div>
+          )}
+
           <p className="text-on-surface-variant text-lg mb-2">
-            Tu pedido fue recibido y está siendo procesado.
+            {paymentStatus === 'paid'
+              ? 'Tu pago fue confirmado. Estamos preparando tu pedido.'
+              : paymentStatus === 'confirming'
+                ? 'Estamos verificando el pago con GalioPay.'
+                : 'Recibimos tu pedido. Te avisaremos por email cuando se confirme el pago.'}
           </p>
 
           {orderId && (
@@ -49,7 +124,7 @@ export function CheckoutSuccessPage() {
             </p>
           )}
 
-          {isPickup && (
+          {isPickup && paymentStatus === 'paid' && (
             <div className="text-left rounded-xl border border-outline-variant/30 bg-surface-container p-6 mb-8 space-y-2 text-sm text-on-surface-variant">
               <p className="font-medium text-on-surface">Retiro en punto de entrega</p>
               <p>{PICKUP_POINT.name}</p>
