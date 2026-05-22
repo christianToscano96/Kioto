@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { ImageUpload } from '@/components/ui/ImageUpload';
 import { useProductsStore } from '@/store/products';
 import { useCategoriesStore } from '@/store/categories';
-import type { Product } from '../../../../shared/src';
+import type { InventoryMode, Product } from '@shared/index';
 import { showToast } from '@/components/ui/Toast';
 import { useProductForm } from '@/hooks/useProductForm';
 import { Save, X, Trash2 } from '@/components/icons';
@@ -16,6 +16,118 @@ const ALL_PRESET_COLORS = [
   '#6b7280', '#dc2626', '#2563eb', '#7c3aed', '#ca8a04',
   '#059669', '#db2777', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444',
 ];
+
+const INVENTORY_MODE_OPTIONS: Array<{ value: InventoryMode; label: string; description: string }> = [
+  {
+    value: 'unit',
+    label: 'Stock único',
+    description: 'Un solo stock para todo el producto',
+  },
+  {
+    value: 'color',
+    label: 'Solo colores',
+    description: 'Sin talles, cada color tiene su stock',
+  },
+  {
+    value: 'size_color',
+    label: 'Talle y color',
+    description: 'Cada talle tiene colores con stock propio',
+  },
+];
+
+function ColorStockEditor({
+  colors,
+  onAddColor,
+  onRemoveColor,
+  onUpdateStock,
+  pickerId,
+}: {
+  colors: Array<{ color: string; stock: number }>;
+  onAddColor: (color: string) => void;
+  onRemoveColor: (color: string) => void;
+  onUpdateStock: (color: string, stock: number) => void;
+  pickerId: string;
+}) {
+  return (
+    <div className="space-y-3">
+      {colors.length > 0 && (
+        <div className="space-y-1.5">
+          {colors.map((line) => (
+            <div key={line.color} className="flex items-center gap-2">
+              <div
+                className="w-6 h-6 rounded-full border border-outline-variant flex-shrink-0"
+                style={{ backgroundColor: line.color }}
+              />
+              <span className="text-xs font-mono text-on-surface-variant w-20">{line.color}</span>
+              <div className="flex-1 flex items-center gap-1">
+                <span className="text-xs text-on-surface-variant">stock:</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={line.stock}
+                  onChange={(e) => onUpdateStock(line.color, parseInt(e.target.value, 10) || 0)}
+                  className="w-16 rounded border border-outline px-2 py-1 text-xs"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => onRemoveColor(line.color)}
+                className="p-1 text-terracota-500 hover:text-terracota-700"
+                title="Eliminar color"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div>
+        <p className="text-xs text-on-surface-variant mb-1.5">Paleta rápida:</p>
+        <div className="flex flex-wrap gap-1.5">
+          {ALL_PRESET_COLORS.map((color) => {
+            const alreadyAdded = colors.some((line) => line.color === color);
+            return (
+              <button
+                key={color}
+                type="button"
+                disabled={alreadyAdded}
+                onClick={() => onAddColor(color)}
+                className={`w-7 h-7 rounded-full border transition-all ${
+                  alreadyAdded
+                    ? 'border-primary/60 ring-2 ring-primary/30 scale-105'
+                    : 'border-outline hover:border-primary hover:scale-110'
+                }`}
+                style={{ backgroundColor: color }}
+                title={alreadyAdded ? 'Ya agregado' : color}
+              />
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          id={pickerId}
+          defaultValue="#99452c"
+          className="h-8 w-10 rounded border border-outline cursor-pointer"
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            const picker = document.getElementById(pickerId) as HTMLInputElement | null;
+            if (picker) onAddColor(picker.value);
+          }}
+        >
+          + Agregar color personalizado
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export function ProductForm() {
   const navigate = useNavigate();
@@ -38,15 +150,14 @@ export function ProductForm() {
     setFormData,
     errors,
     validate,
-    toggleSize,
-    removeColor,
     toggleSizeVariant,
     addColorToVariant,
     removeColorFromVariant,
-    updateColorStock,
-    addImage,
-    updateImage,
-    removeImage,
+    updateVariantColorStock,
+    addProductColor,
+    removeProductColor,
+    updateProductColorStock,
+    addCustomSize,
     getSubmitData,
     SIZE_PRESETS,
   } = useProductForm({ product, isEdit });
@@ -58,7 +169,6 @@ export function ProductForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!validate()) return;
 
     const submitData = getSubmitData();
@@ -76,65 +186,22 @@ export function ProductForm() {
       console.error('Error al guardar producto:', error);
       showToast({ type: 'error', title: 'Error al guardar producto' });
     }
-  }
-
-  // —------ Helpers de UI --------
-  const availableSizes =
-    formData.sizeType === 'custom'
-      ? formData.sizes
-      : SIZE_PRESETS[formData.sizeType];
-
-  const addCustomSize = (raw: string) => {
-    const size = raw.trim();
-    if (!size || formData.sizes.includes(size)) return;
-    setFormData(prev => ({
-      ...prev,
-      sizes: [...prev.sizes, size],
-    }));
   };
 
-  const CustomSizeAdder = () => (
-    <div className="mt-2">
-      <div className="flex gap-2">
-        <Input
-          placeholder="Agregar talla (ej: S, M, L)"
-          onKeyPress={(e) => {
-            if (e.key === 'Enter') {
-              const val = (e.target as HTMLInputElement).value.trim();
-              addCustomSize(val);
-              (e.target as HTMLInputElement).value = '';
-            }
-          }}
-        />
-        <Button type="button" variant="secondary" size="sm"
-          onClick={() => {
-            const input = (document.querySelector(
-              '[data-custom-size-input]'
-            ) as HTMLInputElement);
-            if (input) {
-              addCustomSize(input.value);
-              input.value = '';
-            }
-          }}
-        >
-          +
-        </Button>
-      </div>
-      <p className="text-xs text-on-surface-variant mt-1">Presiona Enter para agregar</p>
-    </div>
-  );
+  const availableSizes =
+    formData.sizeType === 'custom'
+      ? formData.customSizes
+      : SIZE_PRESETS[formData.sizeType];
 
-  // —------ Render --------
   return (
     <div className="max-w-6xl mx-auto">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-serif font-bold text-on-surface">
             {isEdit ? 'Editar Producto' : 'Nuevo Producto'}
           </h1>
           <p className="text-sm text-on-surface-variant mt-0.5">
-            {isEdit ? 'ID: ' + id?.slice(-6) : 'Completa la información del producto'}
+            {isEdit ? `ID: ${id?.slice(-6)}` : 'Completa la información del producto'}
           </p>
         </div>
         <Button variant="ghost" size="sm" onClick={() => navigate('/admin/products')}>
@@ -144,10 +211,7 @@ export function ProductForm() {
       </div>
 
       <form id="product-form" onSubmit={handleSubmit} className="flex flex-col lg:flex-row gap-6">
-        {/* ── COLUMNA IZQUIERDA ── */}
         <div className="flex-1 space-y-4">
-
-          {/* Información básica */}
           <div className="bg-surface-container-low rounded-xl p-5 border border-outline-variant/40">
             <h2 className="text-base font-serif font-bold text-on-surface mb-4">Información Básica</h2>
             <div className="space-y-4">
@@ -170,7 +234,7 @@ export function ProductForm() {
                   error={errors.price}
                   required
                 />
-                {!formData.hasSizes && (
+                {formData.inventoryMode === 'unit' && (
                   <Input
                     label="Stock"
                     type="number"
@@ -219,7 +283,6 @@ export function ProductForm() {
                 </label>
               </div>
 
-              {/* Category */}
               <div>
                 <label className="block text-sm font-medium text-on-surface-variant mb-1.5">
                   Categoría
@@ -240,47 +303,72 @@ export function ProductForm() {
             </div>
           </div>
 
-          {/* ══════ VARIANTES ══════ */}
           <div className="bg-surface-container-low rounded-xl p-5 border border-outline-variant/40">
-            <h2 className="text-base font-serif font-bold text-on-surface mb-4">Variantes</h2>
+            <h2 className="text-base font-serif font-bold text-on-surface mb-4">Inventario</h2>
             <div className="space-y-4">
-
-              {/* Checkbox "tiene variantes" */}
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="hasSizes"
-                  checked={formData.hasSizes}
-                  onChange={(e) => {
-                    const hasSizes = e.target.checked;
-                    setFormData(prev => ({
-                      ...prev,
-                      hasSizes,
-                      sizeStock: hasSizes
-                        ? Object.keys(prev.sizeStock).reduce((acc, k) => {
-                            // limpia las que no estén en esta preselección
-                            return acc;
-                          }, {} as typeof prev.sizeStock)
-                        : {},
-                    }));
-                  }}
-                  className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary"
-                />
-                <label htmlFor="hasSizes" className="ml-2 text-sm font-medium text-on-surface">
-                  Este producto tiene variantes
-                </label>
+              <div className="grid gap-3">
+                {INVENTORY_MODE_OPTIONS.map((option) => (
+                  <label
+                    key={option.value}
+                    className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                      formData.inventoryMode === option.value
+                        ? 'border-primary bg-primary/5'
+                        : 'border-outline-variant/40'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="inventoryMode"
+                      value={option.value}
+                      checked={formData.inventoryMode === option.value}
+                      onChange={() =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          inventoryMode: option.value,
+                          sizeStock: option.value === 'size_color' ? prev.sizeStock : {},
+                          productColors: option.value === 'color' ? prev.productColors : [],
+                        }))
+                      }
+                      className="mt-1 h-4 w-4 border-outline-variant text-primary focus:ring-primary"
+                    />
+                    <span>
+                      <span className="block text-sm font-medium text-on-surface">{option.label}</span>
+                      <span className="block text-xs text-on-surface-variant">{option.description}</span>
+                    </span>
+                  </label>
+                ))}
               </div>
 
-              {formData.hasSizes && (
+              {errors.inventory && (
+                <span className="text-sm text-terracota-600">{errors.inventory}</span>
+              )}
+
+              {formData.inventoryMode === 'color' && (
+                <ColorStockEditor
+                  colors={formData.productColors}
+                  onAddColor={addProductColor}
+                  onRemoveColor={removeProductColor}
+                  onUpdateStock={updateProductColorStock}
+                  pickerId="product-color-picker"
+                />
+              )}
+
+              {formData.inventoryMode === 'size_color' && (
                 <>
-                  {/* Tipo de talla */}
                   <div>
                     <label className="block text-sm font-medium text-on-surface-variant mb-2">
                       Tipo de Tallas
                     </label>
                     <select
                       value={formData.sizeType}
-                      onChange={(e) => setFormData({ ...formData, sizeType: e.target.value as SizeType, sizes: [] })}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          sizeType: e.target.value as SizeType,
+                          customSizes: [],
+                          sizeStock: {},
+                        })
+                      }
                       className="w-full rounded-lg border border-outline bg-white px-3 py-2 text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
                     >
                       <option value="tops">Prenda superior (XS-XXL)</option>
@@ -288,10 +376,25 @@ export function ProductForm() {
                       <option value="footwear">Calzado (5-12 US)</option>
                       <option value="custom">Personalizado</option>
                     </select>
-                    {formData.sizeType === 'custom' && <CustomSizeAdder />}
+                    {formData.sizeType === 'custom' && (
+                      <div className="mt-2">
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="Agregar talla (ej: S, M, L)"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                addCustomSize((e.target as HTMLInputElement).value);
+                                (e.target as HTMLInputElement).value = '';
+                              }
+                            }}
+                          />
+                        </div>
+                        <p className="text-xs text-on-surface-variant mt-1">Presiona Enter para agregar</p>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Lista de tallas — cada una con su panel de colores */}
                   <div className="space-y-3">
                     {availableSizes.map((size) => {
                       const variant = formData.sizeStock[size];
@@ -301,12 +404,9 @@ export function ProductForm() {
                         <div
                           key={size}
                           className={`border rounded-lg transition-all ${
-                            isActive
-                              ? 'border-primary/40 bg-primary/5'
-                              : 'border-outline-variant/30'
+                            isActive ? 'border-primary/40 bg-primary/5' : 'border-outline-variant/30'
                           }`}
                         >
-                          {/* Row: checkbox + nombre de talla + stock total */}
                           <div
                             className="flex items-center gap-3 px-3 py-2 cursor-pointer"
                             onClick={() => toggleSizeVariant(size)}
@@ -326,113 +426,15 @@ export function ProductForm() {
                             )}
                           </div>
 
-                          {/* Panel de colores */}
                           {isActive && (
-                            <div className="px-3 pb-3 space-y-3 border-t border-outline-variant/20 pt-2 mt-1">
-                              {/* Colores ya agregados */}
-                              {variant.colorStock.length > 0 && (
-                                <div className="space-y-1.5">
-                                  {variant.colorStock.map((cs) => (
-                                    <div
-                                      key={cs.name}
-                                      className="flex items-center gap-2"
-                                    >
-                                      {/* Check de color */}
-                                      <input
-                                        type="checkbox"
-                                        checked
-                                        readOnly
-                                        className="h-4 w-4 rounded border-outline accent-primary pointer-events-none"
-                                      />
-                                      {/* Circulo de color */}
-                                      <div
-                                        className="w-6 h-6 rounded-full border border-outline-variant flex-shrink-0"
-                                        style={{ backgroundColor: cs.name }}
-                                      />
-                                      {/* Nombre hex */}
-                                      <span className="text-xs font-mono text-on-surface-variant w-20">
-                                        {cs.name}
-                                      </span>
-                                      {/* Input stock */}
-                                      <div className="flex-1 flex items-center gap-1">
-                                        <span className="text-xs text-on-surface-variant">stock:</span>
-                                        <input
-                                          type="number"
-                                          min="0"
-                                          value={cs.stock}
-                                          onChange={(e) =>
-                                            updateColorStock(size, cs.name, parseInt(e.target.value) || 0)
-                                          }
-                                          className="w-16 rounded border border-outline px-2 py-1 text-xs"
-                                        />
-                                      </div>
-                                      {/* Eliminar color */}
-                                      <button
-                                        type="button"
-                                        onClick={() => removeColorFromVariant(size, cs.name)}
-                                        className="p-1 text-terracota-500 hover:text-terracota-700"
-                                        title="Eliminar color"
-                                      >
-                                        <Trash2 size={14} />
-                                      </button>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-
-                              {/* Paleta de colores para agregar */}
-                              <div>
-                                <p className="text-xs text-on-surface-variant mb-1.5">
-                                  Paleta rápida:
-                                </p>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {ALL_PRESET_COLORS.map((color) => {
-                                    const alreadyAdded = variant.colorStock.some(
-                                      (c) => c.name === color
-                                    );
-                                    return (
-                                      <button
-                                        key={color}
-                                        type="button"
-                                        disabled={alreadyAdded}
-                                        onClick={() => addColorToVariant(size, color)}
-                                        className={`w-7 h-7 rounded-full border transition-all ${
-                                          alreadyAdded
-                                            ? 'border-primary/60 ring-2 ring-primary/30 scale-105'
-                                            : 'border-outline hover:border-primary hover:scale-110'
-                                        }`}
-                                        style={{ backgroundColor: color }}
-                                        title={alreadyAdded ? 'Ya agregado' : color}
-                                      />
-                                    );
-                                  })}
-                                </div>
-                              </div>
-
-                              {/* Color picker personalizado */}
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="color"
-                                  id={`color-${size}`}
-                                  defaultValue="#99452c"
-                                  className="h-8 w-10 rounded border border-outline cursor-pointer"
-                                />
-                                 <Button
-                                  type="button"
-                                  variant="secondary"
-                                  size="sm"
-                                  onClick={() => {
-                                    const picker = document.getElementById(
-                                      `color-${size}`
-                                    ) as HTMLInputElement;
-                                    if (picker) {
-                                      addColorToVariant(size, picker.value);
-                                    }
-                                  }}
-                                >
-                                  + Agregar color personalizado
-                                </Button>
-                              </div>
+                            <div className="px-3 pb-3 border-t border-outline-variant/20 pt-2 mt-1">
+                              <ColorStockEditor
+                                colors={variant.colors}
+                                onAddColor={(color) => addColorToVariant(size, color)}
+                                onRemoveColor={(color) => removeColorFromVariant(size, color)}
+                                onUpdateStock={(color, stock) => updateVariantColorStock(size, color, stock)}
+                                pickerId={`color-${size}`}
+                              />
                             </div>
                           )}
                         </div>
@@ -445,7 +447,6 @@ export function ProductForm() {
           </div>
         </div>
 
-        {/* ── COLUMNA DERECHA — Imágenes ── */}
         <div className="w-full lg:w-80 space-y-4">
           <div className="bg-surface-container-low rounded-xl p-5 border border-outline-variant/40">
             <h2 className="text-base font-serif font-bold text-on-surface mb-4">Imágenes del Producto</h2>
@@ -461,7 +462,7 @@ export function ProductForm() {
                     setFormData({ ...formData, images: newImages });
                   }}
                   onRemove={() => {
-                    setFormData(prev => ({
+                    setFormData((prev) => ({
                       ...prev,
                       images: prev.images.filter((_, i) => i !== index),
                     }));
@@ -471,9 +472,7 @@ export function ProductForm() {
               {formData.images.length < 5 && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setFormData(prev => ({ ...prev, images: [...prev.images, ''] }));
-                  }}
+                  onClick={() => setFormData((prev) => ({ ...prev, images: [...prev.images, ''] }))}
                   className="text-xs text-primary hover:text-primary/80"
                 >
                   + Agregar imagen
@@ -484,7 +483,6 @@ export function ProductForm() {
         </div>
       </form>
 
-      {/* Actions bar */}
       <div className="flex items-center justify-end gap-3 mt-8 pt-4 border-t border-outline-variant/60">
         <Button variant="ghost" size="sm" onClick={() => navigate('/admin/products')}>
           Cancelar

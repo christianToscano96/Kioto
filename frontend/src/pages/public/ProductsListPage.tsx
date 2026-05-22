@@ -24,6 +24,7 @@ import { BackButton } from "@/components/ui/BackButton";
 import { Filter, ArrowLeft } from "@/components/icons";
 import { ProductSkeleton } from "@/components/ui/ProductSkeleton";
 import { useDeviceType } from "@/hooks/useDeviceType";
+import { productHasColor, productHasSize } from "@shared/index";
 import { useDebounce } from "@/hooks/useDebounce";
 
 export function ProductsListPage() {
@@ -145,12 +146,11 @@ export function ProductsListPage() {
 
     // Size filter
     if (filterSize) {
-      filtered = filtered.filter((p) => p.sizes?.includes(filterSize));
+      filtered = filtered.filter((p) => productHasSize(p, filterSize));
     }
 
-    // Color filter
     if (filterColor) {
-      filtered = filtered.filter((p) => p.colors?.includes(filterColor));
+      filtered = filtered.filter((p) => productHasColor(p, filterColor));
     }
 
     // Price filter

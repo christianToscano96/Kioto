@@ -25,7 +25,22 @@ export const createNotification = async (data: CreateNotificationData) => {
 };
 
 /**
- * Notify admin of new order
+ * Notify admin when payment is confirmed
+ */
+export const notifyOrderPaid = async (orderId: string) => {
+  const order = await Order.findById(orderId);
+  if (!order) return;
+
+  return createNotification({
+    type: 'order',
+    title: 'Pago confirmado',
+    message: `Pedido #${order._id.toString().slice(-8)} pagado · $${order.total.toFixed(2)}`,
+    orderId: order._id.toString(),
+  });
+};
+
+/**
+ * Notify admin of new pending checkout (optional, lightweight)
  */
 export const notifyNewOrder = async (orderId: string) => {
   const order = await Order.findById(orderId);
@@ -33,8 +48,8 @@ export const notifyNewOrder = async (orderId: string) => {
 
   return createNotification({
     type: 'order',
-    title: 'Nuevo Pedido',
-    message: `Pedido #${order._id.toString().slice(-8)} por $${order.total.toFixed(2)}`,
+    title: 'Checkout iniciado',
+    message: `Pedido #${order._id.toString().slice(-8)} pendiente de pago · $${order.total.toFixed(2)}`,
     orderId: order._id.toString(),
   });
 };

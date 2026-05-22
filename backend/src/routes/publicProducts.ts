@@ -117,35 +117,35 @@ router.get('/products/slug/:slug', async (req: Request, res: Response) => {
 // GET /api/public/colors - Get all unique colors from published products
 router.get('/colors', async (_req: Request, res: Response) => {
   try {
-    // Optimized: single aggregation pipeline for both legacy and variant colors
     const result = await Product.aggregate([
       { $match: { published: true } },
       {
         $facet: {
-          legacyColors: [
-            { $unwind: { path: '$colors', preserveNullAndEmptyArrays: true } },
-            { $match: { colors: { $exists: true, $nin: [null, ''] } } },
-            { $group: { _id: '$colors' } },
+          colorMode: [
+            { $match: { inventoryMode: 'color' } },
+            { $unwind: '$colors' },
+            { $match: { 'colors.color': { $exists: true, $nin: [null, ''] } } },
+            { $group: { _id: '$colors.color' } },
           ],
-          variantColors: [
-            { $unwind: { path: '$variants', preserveNullAndEmptyArrays: true } },
-            { $unwind: { path: '$variants.colorStock', preserveNullAndEmptyArrays: true } },
-            { $match: { 'variants.colorStock.name': { $exists: true, $nin: [null, ''] } } },
-            { $group: { _id: '$variants.colorStock.name' } },
+          sizeColorMode: [
+            { $match: { inventoryMode: 'size_color' } },
+            { $unwind: '$sizeVariants' },
+            { $unwind: '$sizeVariants.colors' },
+            { $match: { 'sizeVariants.colors.color': { $exists: true, $nin: [null, ''] } } },
+            { $group: { _id: '$sizeVariants.colors.color' } },
           ],
         },
       },
     ]);
 
     const colors = new Set<string>();
-    result[0].legacyColors?.forEach((entry: { _id: string }) => {
+    result[0].colorMode?.forEach((entry: { _id: string }) => {
       if (entry._id) colors.add(entry._id);
     });
-    result[0].variantColors?.forEach((entry: { _id: string }) => {
+    result[0].sizeColorMode?.forEach((entry: { _id: string }) => {
       if (entry._id) colors.add(entry._id);
     });
 
-    // Cache for 1 hour - colors don't change frequently
     res.setHeader('Cache-Control', 'public, max-age=3600');
     res.status(200).json({ colors: Array.from(colors).sort() });
   } catch (error) {

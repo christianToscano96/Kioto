@@ -1,41 +1,45 @@
-import { useState, useCallback, memo } from "react";
-import { useCartStore } from "../../store/cart";
-import { useToast } from "./Toast";
-import { useProductStock } from "../../hooks/useProductStock";
-import { ProductCardGrid } from "./ProductCardGrid";
-import { ProductCardList } from "./ProductCardList";
-import type { Product } from "../../../../shared/src";
+import { useState, useCallback, memo } from 'react';
+import { useCartStore } from '../../store/cart';
+import { useToast } from './Toast';
+import { useProductStock } from '../../hooks/useProductStock';
+import { ProductCardGrid } from './ProductCardGrid';
+import { ProductCardList } from './ProductCardList';
+import type { Product } from '@shared/index';
 
 interface ProductCardUnifiedProps {
   product: Product;
-  variant?: "grid" | "list" | "compact";
+  variant?: 'grid' | 'list' | 'compact';
   showQuickActions?: boolean;
-  /** Se dispara al tocar el botón de carrito — la página decide si abre sidebar o bottom sheet */
   onAddToCart: (productId: string) => void;
 }
 
 export function ProductCardUnified({
   product,
-  variant = "grid",
+  variant = 'grid',
   showQuickActions = true,
   onAddToCart,
 }: ProductCardUnifiedProps) {
   const addToCart = useCartStore((state) => state.addToCart);
   const { addToast } = useToast();
 
-  // ── estado local ──────────────────────────────────────────
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [imageError, setImageError] = useState(false);
 
-  // ── derivados ─────────────────────────────────────────────
   const images = product.images || [];
-  const availableSizes = product?.variants?.map(v => v.size) || product?.sizes || [];
-  const availableColors = product?.colors || [];
+  const {
+    inventoryMode,
+    totalStock,
+    sizes,
+    getSizeStock,
+    getAvailableColors,
+  } = useProductStock(product);
 
-  const { totalStock, getVariantStock, hasVariants } = useProductStock(product);
-  const hasSizes = availableSizes.length > 0;
+  const hasSizes = inventoryMode === 'size_color';
+  const availableSizes = sizes;
+  const availableColors = inventoryMode === 'color'
+    ? getAvailableColors()
+    : [];
 
-  // ── acciones ──────────────────────────────────────────────
   const handleAddToCart = useCallback(async (
     selectedSize: string,
     selectedColor: string,
@@ -61,8 +65,7 @@ export function ProductCardUnified({
     }
   }, [addToCart, addToast, hasSizes, product]);
 
-  // ── delegación por variante ────────────────────────────────
-  if (variant === "list") {
+  if (variant === 'list') {
     return (
       <ProductCardList
         product={product}
@@ -75,7 +78,6 @@ export function ProductCardUnified({
     );
   }
 
-  // Grid / Compact
   return (
     <ProductCardGrid
       product={product}
@@ -88,8 +90,8 @@ export function ProductCardUnified({
       availableSizes={availableSizes}
       availableColors={availableColors}
       totalStock={totalStock}
-      getVariantStock={getVariantStock}
-      hasVariants={hasVariants}
+      getVariantStock={getSizeStock}
+      hasVariants={hasSizes}
       availableStock={totalStock}
       handleAddToCart={handleAddToCart}
       hasSizes={hasSizes}
@@ -98,14 +100,12 @@ export function ProductCardUnified({
   );
 }
 
-// Memoized version to prevent unnecessary re-renders
 export default memo(ProductCardUnified, (prevProps, nextProps) => {
-  // Only re-render if product data or variant changes
   return (
     prevProps.product._id === nextProps.product._id &&
     prevProps.product.price === nextProps.product.price &&
     prevProps.product.name === nextProps.product.name &&
-    prevProps.product.stock === nextProps.product.stock &&
+    prevProps.product.inventoryMode === nextProps.product.inventoryMode &&
     prevProps.variant === nextProps.variant &&
     prevProps.showQuickActions === nextProps.showQuickActions
   );

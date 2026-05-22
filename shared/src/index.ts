@@ -19,18 +19,57 @@ export interface Category {
   updatedAt?: Date;
 }
 
+export type {
+  InventoryMode,
+  ColorStockLine,
+  SizeVariant,
+  InventorySelection,
+  ResolvedInventory,
+  ProductInventoryFields,
+} from './inventory';
+
+export {
+  getInventoryMode,
+  getTotalStock,
+  getSizeStock,
+  getAvailableSizes,
+  getAvailableColors,
+  getColorStockMap,
+  resolveInventory,
+  productHasSize,
+  productHasColor,
+} from './inventory';
+
+export type {
+  DeliveryMethod,
+  PaymentMethod,
+  ShippingQuote,
+  ArgentineProvinceId,
+  ArgentineProvince,
+} from './shipping';
+
+export {
+  LOCAL_POSTAL_CODE,
+  ARGENTINE_PROVINCES,
+  normalizePostalCode,
+  isLocalPostalCode,
+  getProvinceById,
+  getProvinceByName,
+  getMatchingProvinces,
+  getProvinceFromPostalCode,
+  isPostalCodeValidForProvince,
+  calculateShipping,
+  resolvePaymentMethod,
+  PICKUP_POINT,
+  formatShippingCost,
+  formatShippingMil,
+  formatShippingQuote,
+  milToArs,
+} from './shipping';
+
+import type { ColorStockLine, InventoryMode, SizeVariant } from './inventory';
+
 // Product Types
-export interface ProductColorStock {
-  name: string;   // hex color or color name
-  stock: number;
-}
-
-export interface ProductVariant {
-  size: string;
-  colorStock: ProductColorStock[];
-  stock: number;   // auto-computed = sum of colorStock stocks
-}
-
 export interface Product {
   _id: string;
   name: string;
@@ -38,14 +77,14 @@ export interface Product {
   price: number;
   images: string[];
   description: string;
-  stock: number;
-  totalStock?: number; // Virtual: sum of variants stock
+  inventoryMode: InventoryMode;
+  stock?: number;
+  colors?: ColorStockLine[];
+  sizeVariants?: SizeVariant[];
+  totalStock?: number;
   published: boolean;
   materials?: string;
-  sizes?: string[];
-  colors?: string[];
   category?: string | { _id: string; name: string; slug?: string };
-  variants?: ProductVariant[]; // Size-based stock for products with sizes
   createdAt: Date;
   updatedAt?: Date;
 }
@@ -55,9 +94,13 @@ export interface CreateProductInput {
   price: number;
   images: string[];
   description: string;
+  inventoryMode: InventoryMode;
   stock?: number;
+  colors?: ColorStockLine[];
+  sizeVariants?: SizeVariant[];
   published?: boolean;
-  variants?: ProductVariant[];
+  materials?: string;
+  category?: string;
 }
 
 export interface UpdateProductInput extends Partial<CreateProductInput> {}

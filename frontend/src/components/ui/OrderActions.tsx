@@ -13,6 +13,7 @@ interface OrderActionsProps {
 }
 
 export function OrderActions({ orderId, status, galioPaymentId, onPrintLabel }: OrderActionsProps) {
+  const hasGalioPaymentId = !!galioPaymentId && !galioPaymentId.startsWith('http');
   const [open, setOpen] = useState(false);
   const [resending, setResending] = useState(false);
   const [checkingPayment, setCheckingPayment] = useState(false);
@@ -69,7 +70,7 @@ export function OrderActions({ orderId, status, galioPaymentId, onPrintLabel }: 
   };
 
   const handleCheckGalioPayment = async () => {
-    if (!galioPaymentId) return;
+    if (!hasGalioPaymentId) return;
     
     try {
       setCheckingPayment(true);
@@ -93,7 +94,7 @@ export function OrderActions({ orderId, status, galioPaymentId, onPrintLabel }: 
   };
 
   const handleRefundGalioPayment = async () => {
-    if (!galioPaymentId) return;
+    if (!hasGalioPaymentId) return;
     
     if (!confirm('¿Reembolsar este pago?')) return;
     
@@ -159,7 +160,7 @@ export function OrderActions({ orderId, status, galioPaymentId, onPrintLabel }: 
           )}
           
           {/* GalioPay actions */}
-          {galioPaymentId && (
+          {hasGalioPaymentId && (
             <>
               <button
                 onClick={handleCheckGalioPayment}

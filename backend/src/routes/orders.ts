@@ -5,6 +5,13 @@ import Product from '../models/Product';
 import { resendOrderConfirmationEmail } from '../services/email';
 import { getPayment, refundPayment } from '../services/galio';
 import { assertStockAvailable, deductStockForItems } from '../utils/stock';
+import { markOrderAsCancelled } from '../utils/orderPayment';
+
+function resolveGalioPaymentId(order: { galioPaymentId?: string | null }): string | null {
+  const paymentId = order.galioPaymentId;
+  if (!paymentId || paymentId.startsWith('http')) return null;
+  return paymentId;
+}
 
 const router = Router();
 
@@ -82,18 +89,30 @@ router.patch('/:id/status', async (req, res) => {
       return res.status(400).json({ error: 'Invalid status' });
     }
 
-    const order = await Order.findByIdAndUpdate(
-      req.params.id,
-      { status },
-      { new: true }
-    );
-
+    const order = await Order.findById(req.params.id);
     if (!order) {
       return res.status(404).json({ error: 'Order not found' });
     }
 
+    if (status === 'paid' && order.status === 'pending') {
+      const { markOrderAsPaid } = await import('../utils/orderPayment');
+      await markOrderAsPaid(order);
+      const updatedOrder = await Order.findById(order._id);
+      return res.json(updatedOrder);
+    }
+
+    if (status === 'cancelled' && order.status === 'paid') {
+      const { markOrderAsCancelled } = await import('../utils/orderPayment');
+      await markOrderAsCancelled(order, { restoreStock: true });
+      const updatedOrder = await Order.findById(order._id);
+      return res.json(updatedOrder);
+    }
+
+    order.status = status;
+    await order.save();
     res.json(order);
   } catch (error) {
+    console.error('Order status update error:', error);
     res.status(500).json({ error: 'Failed to update order status' });
   }
 });
@@ -125,11 +144,12 @@ router.get('/:id/galio-payment', async (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    if (!order.galioPaymentId) {
+    const paymentId = resolveGalioPaymentId(order);
+    if (!paymentId) {
       return res.status(400).json({ error: 'No GalioPay payment ID' });
     }
 
-    const payment = await getPayment(order.galioPaymentId);
+    const payment = await getPayment(paymentId);
     res.json(payment);
   } catch (error) {
     console.error('GalioPay payment fetch error:', error);
@@ -147,15 +167,15 @@ router.post('/:id/refund-galio', async (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    if (!order.galioPaymentId) {
+    const paymentId = resolveGalioPaymentId(order);
+    if (!paymentId) {
       return res.status(400).json({ error: 'No GalioPay payment ID' });
     }
 
-    const result = await refundPayment(order.galioPaymentId, { reason, refundType });
+    const result = await refundPayment(paymentId, { reason, refundType });
     
     if (result.success) {
-      order.status = 'cancelled';
-      await order.save();
+      await markOrderAsCancelled(order, { restoreStock: true });
     }
 
     res.json(result);
@@ -197,8 +217,8 @@ router.post('/manual', async (req, res) => {
           productId: product._id,
           quantity: item.quantity,
           price: product.price,
-          size: resolvedStock.size,
-          color: resolvedStock.color,
+          size: resolvedStock.resolvedSize,
+          color: resolvedStock.resolvedColor,
         });
         total += product.price * item.quantity;
       } catch (stockError) {

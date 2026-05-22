@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { Product } from '@shared/index';
+import type { ColorStockLine, InventoryMode, Product } from '@shared/index';
 
 const PRESET_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 const BOTTOM_SIZES = ['28', '30', '32', '34', '36', '38', '40', '42'];
@@ -14,13 +14,8 @@ const SIZE_PRESETS: Record<SizeType, string[]> = {
   custom: [],
 };
 
-interface ColorStockEntry {
-  name: string;
-  stock: number;
-}
-
 interface SizeVariantEntry {
-  colorStock: ColorStockEntry[];
+  colors: ColorStockLine[];
   totalStock: number;
 }
 
@@ -32,11 +27,11 @@ interface ProductFormData {
   stock: string;
   published: boolean;
   materials: string;
-  hasSizes: boolean;
+  inventoryMode: InventoryMode;
   sizeType: SizeType;
   sizeStock: Record<string, SizeVariantEntry>;
-  sizes: string[];
-  colors: string[];
+  productColors: ColorStockLine[];
+  customSizes: string[];
   category: string;
 }
 
@@ -44,6 +39,9 @@ interface UseProductFormProps {
   product?: Product | null;
   isEdit: boolean;
 }
+
+const sumColorStock = (colors: ColorStockLine[]) =>
+  colors.reduce((sum, line) => sum + (line.stock || 0), 0);
 
 export function useProductForm({ product, isEdit }: UseProductFormProps) {
   const [formData, setFormData] = useState<ProductFormData>({
@@ -54,11 +52,11 @@ export function useProductForm({ product, isEdit }: UseProductFormProps) {
     stock: '',
     published: false,
     materials: '',
-    hasSizes: false,
+    inventoryMode: 'unit',
     sizeType: 'tops',
     sizeStock: {},
-    sizes: [],
-    colors: [],
+    productColors: [],
+    customSizes: [],
     category: '',
   });
 
@@ -66,15 +64,21 @@ export function useProductForm({ product, isEdit }: UseProductFormProps) {
 
   useEffect(() => {
     if (isEdit && product) {
-      const hasSizes = product.variants && product.variants.length > 0;
       let sizeStock: Record<string, SizeVariantEntry> = {};
+      let productColors: ColorStockLine[] = [];
 
-      if (hasSizes && product.variants) {
-        product.variants.forEach((v: any) => {
-          const colorStock = v.colorStock || [];
-          const totalStock = colorStock.reduce((sum: number, c: any) => sum + (c.stock || 0), 0);
-          sizeStock[v.size] = { colorStock, totalStock };
+      if (product.inventoryMode === 'size_color' && product.sizeVariants) {
+        product.sizeVariants.forEach((variant) => {
+          const colors = variant.colors || [];
+          sizeStock[variant.size] = {
+            colors,
+            totalStock: sumColorStock(colors),
+          };
         });
+      }
+
+      if (product.inventoryMode === 'color' && product.colors) {
+        productColors = product.colors;
       }
 
       setFormData({
@@ -82,14 +86,14 @@ export function useProductForm({ product, isEdit }: UseProductFormProps) {
         price: product.price?.toString() || '',
         images: product.images || [],
         description: product.description || '',
-        stock: product.stock?.toString() || '',
+        stock: product.inventoryMode === 'unit' ? product.stock?.toString() || '' : '',
         published: product.published || false,
         materials: product.materials || '',
-        hasSizes: hasSizes || false,
+        inventoryMode: product.inventoryMode || 'unit',
         sizeType: 'tops',
         sizeStock,
-        sizes: product.sizes || [],
-        colors: product.colors || [],
+        productColors,
+        customSizes: [],
         category: typeof product.category === 'object' ? product.category?._id : product.category || '',
       });
     }
@@ -107,94 +111,130 @@ export function useProductForm({ product, isEdit }: UseProductFormProps) {
     if (!formData.description.trim()) {
       newErrors.description = 'La descripción es requerida';
     }
-    if (!formData.hasSizes && (formData.stock === '' || isNaN(Number(formData.stock)) || Number(formData.stock) < 0)) {
-      newErrors.stock = 'Se requiere una cantidad válida';
+
+    if (formData.inventoryMode === 'unit') {
+      if (formData.stock === '' || isNaN(Number(formData.stock)) || Number(formData.stock) < 0) {
+        newErrors.stock = 'Se requiere una cantidad válida';
+      }
+    }
+
+    if (formData.inventoryMode === 'color' && formData.productColors.length === 0) {
+      newErrors.inventory = 'Agregá al menos un color con stock';
+    }
+
+    if (formData.inventoryMode === 'size_color') {
+      const activeSizes = Object.values(formData.sizeStock).filter((entry) => entry.colors.length > 0);
+      if (activeSizes.length === 0) {
+        newErrors.inventory = 'Agregá al menos una talla con colores y stock';
+      }
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const toggleSize = (size: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      sizes: prev.sizes.includes(size)
-        ? prev.sizes.filter((s) => s !== size)
-        : [...prev.sizes, size],
-    }));
-  };
-
-  const removeColor = (color: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      colors: prev.colors.filter((c) => c !== color),
-    }));
-  };
-
-  // — Variant helpers —
   const toggleSizeVariant = (size: string) => {
     setFormData((prev) => {
       const next = { ...prev };
       if (next.sizeStock[size]) {
-        // desactivar
         const { [size]: _, ...rest } = next.sizeStock;
         next.sizeStock = rest;
       } else {
-        // activar con colorStock vacío
-        next.sizeStock = { ...next.sizeStock, [size]: { colorStock: [], totalStock: 0 } };
+        next.sizeStock = { ...next.sizeStock, [size]: { colors: [], totalStock: 0 } };
       }
       return next;
     });
   };
 
-  const addColorToVariant = (size: string, colorName: string) => {
+  const addColorToVariant = (size: string, color: string) => {
     setFormData((prev) => {
       const variant = prev.sizeStock[size];
       if (!variant) return prev;
-      if (variant.colorStock.some((c) => c.name === colorName)) return prev;
-      const colorStock = [...variant.colorStock, { name: colorName, stock: 0 }];
-      const totalStock = colorStock.reduce((sum, c) => sum + c.stock, 0);
+      if (variant.colors.some((line) => line.color === color)) return prev;
+      const colors = [...variant.colors, { color, stock: 0 }];
       return {
         ...prev,
-        sizeStock: { ...prev.sizeStock, [size]: { colorStock, totalStock } },
+        sizeStock: {
+          ...prev.sizeStock,
+          [size]: { colors, totalStock: sumColorStock(colors) },
+        },
       };
     });
   };
 
-  const removeColorFromVariant = (size: string, colorName: string) => {
+  const removeColorFromVariant = (size: string, color: string) => {
     setFormData((prev) => {
       const variant = prev.sizeStock[size];
       if (!variant) return prev;
-      const colorStock = variant.colorStock.filter((c) => c.name !== colorName);
-      const totalStock = colorStock.reduce((sum, c) => sum + c.stock, 0);
+      const colors = variant.colors.filter((line) => line.color !== color);
       return {
         ...prev,
-        sizeStock: { ...prev.sizeStock, [size]: { colorStock, totalStock } },
+        sizeStock: {
+          ...prev.sizeStock,
+          [size]: { colors, totalStock: sumColorStock(colors) },
+        },
       };
     });
   };
 
-  const updateColorStock = (size: string, colorName: string, stock: number) => {
+  const updateVariantColorStock = (size: string, color: string, stock: number) => {
     setFormData((prev) => {
       const variant = prev.sizeStock[size];
       if (!variant) return prev;
-      const colorStock = variant.colorStock.map((c) =>
-        c.name === colorName ? { ...c, stock } : c
+      const colors = variant.colors.map((line) =>
+        line.color === color ? { ...line, stock } : line,
       );
-      const totalStock = colorStock.reduce((sum, c) => sum + c.stock, 0);
       return {
         ...prev,
-        sizeStock: { ...prev.sizeStock, [size]: { colorStock, totalStock } },
+        sizeStock: {
+          ...prev.sizeStock,
+          [size]: { colors, totalStock: sumColorStock(colors) },
+        },
       };
     });
+  };
+
+  const addProductColor = (color: string) => {
+    setFormData((prev) => {
+      if (prev.productColors.some((line) => line.color === color)) return prev;
+      return {
+        ...prev,
+        productColors: [...prev.productColors, { color, stock: 0 }],
+      };
+    });
+  };
+
+  const removeProductColor = (color: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      productColors: prev.productColors.filter((line) => line.color !== color),
+    }));
+  };
+
+  const updateProductColorStock = (color: string, stock: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      productColors: prev.productColors.map((line) =>
+        line.color === color ? { ...line, stock } : line,
+      ),
+    }));
+  };
+
+  const addCustomSize = (raw: string) => {
+    const size = raw.trim();
+    if (!size || formData.customSizes.includes(size)) return;
+    setFormData((prev) => ({
+      ...prev,
+      customSizes: [...prev.customSizes, size],
+    }));
   };
 
   const addImage = () => {
-    setFormData(prev => ({ ...prev, images: [...prev.images, ''] }));
+    setFormData((prev) => ({ ...prev, images: [...prev.images, ''] }));
   };
 
   const updateImage = (index: number, url: string) => {
-    setFormData(prev => {
+    setFormData((prev) => {
       const newImages = [...prev.images];
       newImages[index] = url;
       return { ...prev, images: newImages };
@@ -202,9 +242,9 @@ export function useProductForm({ product, isEdit }: UseProductFormProps) {
   };
 
   const removeImage = (index: number) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      images: prev.images.filter((_, i) => i !== index)
+      images: prev.images.filter((_, i) => i !== index),
     }));
   };
 
@@ -214,24 +254,27 @@ export function useProductForm({ product, isEdit }: UseProductFormProps) {
       price: Number(formData.price),
       images: formData.images.filter(Boolean),
       description: formData.description,
-      stock: formData.hasSizes ? 0 : Number(formData.stock),
       published: formData.published,
       materials: formData.materials,
       category: formData.category || undefined,
-    } as Record<string, any>;
+      inventoryMode: formData.inventoryMode,
+    } as Record<string, unknown>;
 
-    if (formData.hasSizes) {
-      base.variants = Object.entries(formData.sizeStock)
-        .filter(([, data]) => data.colorStock.length > 0)
+    if (formData.inventoryMode === 'unit') {
+      base.stock = Number(formData.stock);
+    }
+
+    if (formData.inventoryMode === 'color') {
+      base.colors = formData.productColors;
+    }
+
+    if (formData.inventoryMode === 'size_color') {
+      base.sizeVariants = Object.entries(formData.sizeStock)
+        .filter(([, data]) => data.colors.length > 0)
         .map(([size, data]) => ({
           size,
-          colorStock: data.colorStock,
-          stock: data.totalStock,
+          colors: data.colors,
         }));
-      // sizes y colors NO se envían — se manejan exclusivamente por variants
-    } else {
-      base.sizes = formData.sizes;
-      base.colors = formData.colors;
     }
 
     return base;
@@ -242,14 +285,14 @@ export function useProductForm({ product, isEdit }: UseProductFormProps) {
     setFormData,
     errors,
     validate,
-    toggleSize,
-    removeColor,
-    // variant helpers
     toggleSizeVariant,
     addColorToVariant,
     removeColorFromVariant,
-    updateColorStock,
-    // image helpers
+    updateVariantColorStock,
+    addProductColor,
+    removeProductColor,
+    updateProductColorStock,
+    addCustomSize,
     addImage,
     updateImage,
     removeImage,

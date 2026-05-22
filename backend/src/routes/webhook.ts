@@ -1,11 +1,34 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
-import Order from '../models/Order';
+import Order, { type IOrder } from '../models/Order';
 import { getPayment } from '../services/galio';
-import { sendOrderConfirmationEmail, sendAdminNotificationEmail } from '../services/email';
-import { deductStockForItems } from '../utils/stock';
+import {
+  isGalioPaymentApproved,
+  markOrderAsCancelled,
+  markOrderAsFailed,
+  markOrderAsPaid,
+} from '../utils/orderPayment';
 
 const router = Router();
+
+function buildOrderQuery(referenceId?: string, paymentId?: string) {
+  const conditions: Record<string, unknown>[] = [];
+
+  if (referenceId && mongoose.Types.ObjectId.isValid(referenceId)) {
+    conditions.push({ _id: referenceId });
+  }
+
+  if (paymentId) {
+    conditions.push({ galioPaymentId: paymentId });
+  }
+
+  return conditions.length > 0 ? { $or: conditions } : null;
+}
+
+async function processApprovedPayment(order: IOrder, paymentId?: string) {
+  const result = await markOrderAsPaid(order, { galioPaymentId: paymentId });
+  return { success: true, alreadyProcessed: result.alreadyProcessed };
+}
 
 /**
  * Webhook endpoint for GalioPay notifications
@@ -19,74 +42,54 @@ router.post('/galio', async (req, res) => {
       return res.status(400).json({ error: 'Missing payment reference' });
     }
 
-    // Convert referenceId to ObjectId if valid
-    let orderQuery: any = {};
-    if (referenceId && mongoose.Types.ObjectId.isValid(referenceId)) {
-      orderQuery = { _id: referenceId };
-    } else if (paymentId) {
-      orderQuery = { galioPaymentId: paymentId };
-    }
-
-    if (Object.keys(orderQuery).length === 0) {
+    const orderQuery = buildOrderQuery(referenceId, paymentId);
+    if (!orderQuery) {
       return res.status(400).json({ error: 'Invalid payment reference' });
     }
 
     const order = await Order.findOne(orderQuery);
-
     if (!order) {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    // Mark order as paid and deduct stock
-    // GalioPay sends 'approved' or 'ok' for successful payments
-    if (status === 'approved' || status === 'ok') {
-      if (order.status === 'paid') {
-        return res.json({ success: true, alreadyProcessed: true });
-      }
-
-      await deductStockForItems(order.items as any);
-      order.status = 'paid';
-      await order.save();
-      
-      // Send order confirmation emails
-      sendOrderConfirmationEmail(order, order._id.toString())
-        .then(() => console.log(`[EMAIL] Customer confirmation sent for order ${order._id}`))
-        .catch((err) => console.error(`[EMAIL-ERROR] Customer confirmation failed for order ${order._id}:`, err));
-      sendAdminNotificationEmail(order, order._id.toString(), order.shippingDetails?.name || 'Cliente')
-        .then(() => console.log(`[EMAIL] Admin notification sent for order ${order._id}`))
-        .catch((err) => console.error(`[EMAIL-ERROR] Admin notification failed for order ${order._id}:`, err));
-      
-      return res.json({ success: true });
+    if (paymentId) {
+      order.galioPaymentId = paymentId;
     }
 
-    // Otherwise verify with GalioPay API
+    if (isGalioPaymentApproved(status)) {
+      const result = await processApprovedPayment(order, paymentId);
+      return res.json(result);
+    }
+
+    if (status === 'rejected' || status === 'failed' || status === 'cancelled') {
+      await markOrderAsFailed(order);
+      return res.json({ success: true, status: 'failed' });
+    }
+
     if (paymentId) {
       const payment = await getPayment(paymentId);
-      // GalioPay API returns 'approved' for successful payments
-      if ((payment.status === 'approved' || payment.status === 'ok') && order.status === 'pending') {
-        await deductStockForItems(order.items as any);
-        order.status = 'paid';
-        await order.save();
-        
-// Send order confirmation emails
-         sendOrderConfirmationEmail(order, order._id.toString())
-           .then(() => console.log(`[EMAIL] Customer confirmation sent for order ${order._id}`))
-           .catch((err) => console.error(`[EMAIL-ERROR] Customer confirmation failed for order ${order._id}:`, err));
-         sendAdminNotificationEmail(order, order._id.toString(), order.shippingDetails?.name || 'Cliente')
-           .then(() => console.log(`[EMAIL] Admin notification sent for order ${order._id}`))
-           .catch((err) => console.error(`[EMAIL-ERROR] Admin notification failed for order ${order._id}:`, err));
-      } else if (payment.status === 'refunded') {
-        order.status = 'cancelled';
-        await order.save();
+
+      if (isGalioPaymentApproved(payment.status)) {
+        const result = await processApprovedPayment(order, paymentId);
+        return res.json(result);
+      }
+
+      if (payment.status === 'refunded') {
+        await markOrderAsCancelled(order, { restoreStock: true });
+        return res.json({ success: true, status: 'cancelled' });
+      }
+
+      if (payment.status === 'rejected' || payment.status === 'failed') {
+        await markOrderAsFailed(order);
+        return res.json({ success: true, status: 'failed' });
       }
     }
 
-    res.json({ success: true });
+    res.json({ success: true, status: 'pending' });
   } catch (error) {
     console.error('Galio webhook error:', error);
     res.status(500).json({ error: 'Webhook processing failed' });
   }
 });
-
 
 export default router;

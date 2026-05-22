@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { ordersApi, adminProductsApi, cartApi } from "@/lib/api";
 import type { Order, Product } from "@shared/index";
+import { getTotalStock } from "@shared/index";
 
 export interface DashboardStats {
   totalSales: number;
@@ -114,10 +115,10 @@ export function useDashboardStats({
         .slice(0, 5);
 
       const lowStockProducts = products
-        .filter((p: Product) => (p.stock || 0) < 5)
-        .sort((a, b) => (a.stock || 0) - (b.stock || 0))
-        .slice(0, 5)
-        .map((p) => ({ name: p.name, stock: p.stock || 0 }));
+        .map((p: Product) => ({ name: p.name, stock: getTotalStock(p) }))
+        .filter((p) => p.stock < 5)
+        .sort((a, b) => a.stock - b.stock)
+        .slice(0, 5);
 
       // Time series data
       const ordersByDate = orders.reduce<Record<string, number>>((acc, o: Order) => {
