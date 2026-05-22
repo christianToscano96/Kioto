@@ -60,6 +60,9 @@ fetchOrders: async () => {
      try {
        await ordersApi.updateStatus(id, status);
        await get().fetchOrders();
+       if (get().order?._id === id) {
+         await get().fetchOrder(id);
+       }
      } catch (error) {
        const message = error instanceof Error ? error.message : 'Failed to update order status';
        set({ error: message });

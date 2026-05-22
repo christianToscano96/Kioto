@@ -1,39 +1,59 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { DataTable, StatusBadge } from "@/components/ui/DataTable";
-import { formatPrice } from "@/lib/utils";
+import { Button } from "@/components/ui/Button";
+import { DashboardChartCard, DashboardChartEmpty } from "@/components/admin/DashboardChartCard";
+import { formatPrice, rowsToCsv } from "@/lib/utils";
+import { ORDER_STATUS_LABELS } from "@/lib/orderStatus";
 import {
-  AreaChart,
+  CHART_ACCENT,
+  CHART_GRID,
+  CHART_MUTED,
+  CHART_PRIMARY,
+  CHART_SECONDARY,
+  DashboardChartTooltip,
+  formatCountTooltipValue,
+  formatSalesTooltipValue,
+  getStatusChartColor,
+} from "@/lib/dashboardCharts";
+import {
   Area,
-  BarChart,
   Bar,
-  PieChart,
-  Pie,
+  CartesianGrid,
   Cell,
+  ComposedChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-  FunnelChart,
-  Funnel,
-  LabelList,
 } from "recharts";
-import { useDashboardStats } from "@/hooks/useDashboardStats";
-import { Package,  AlertCircle,  } from '@/components/icons';
+import { useDashboardStats, type RecentOrder } from "@/hooks/useDashboardStats";
+import { AlertCircle, Download, Package, RefreshCw } from "@/components/icons";
 
 type TimeRange = "7d" | "30d" | "90d" | "custom";
 
+function getPeriodLabel(timeRange: TimeRange, customFrom?: string, customTo?: string): string {
+  if (timeRange === "custom" && customFrom && customTo) {
+    return `${customFrom} – ${customTo}`;
+  }
+  if (timeRange === "30d") return "Últimos 30 días";
+  if (timeRange === "90d") return "Últimos 90 días";
+  return "Últimos 7 días";
+}
+
 export function DashboardOverview() {
+  const navigate = useNavigate();
   const [timeRange, setTimeRange] = useState<TimeRange>("7d");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [showCustomRange, setShowCustomRange] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   
-  const { stats, recentOrders, loading, totalPages, refetch } = useDashboardStats({
+  const { stats, recentOrders, loading, totalPages, refetch, error } = useDashboardStats({
     timeRange,
     customFrom,
     customTo,
@@ -62,102 +82,137 @@ export function DashboardOverview() {
     );
   }
 
-  if (!stats) return <div className="p-8">Error cargando datos</div>;
+  if (!stats) {
+    return (
+      <div className="p-8 text-center max-w-md mx-auto">
+        <p className="text-on-surface-variant mb-4">
+          {error ?? "Error al cargar los datos del tablero."}
+        </p>
+        <button
+          type="button"
+          onClick={() => refetch()}
+          className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover transition-colors"
+        >
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+
+  const periodLabel = getPeriodLabel(timeRange, customFrom, customTo);
 
   const statCards = [
     {
       label: "Ventas Totales",
       value: formatPrice(stats.totalSales),
-      change: { value: 12.4, label: "+12.4% vs mes anterior", type: "increase" as const },
-      sparklineData: stats.salesData?.map(d => ({ date: d.date, value: d.sales })),
+      sparklineData: stats.salesData?.map((d) => ({ date: d.date, value: d.sales })),
     },
     {
       label: "Pedidos",
       value: stats.orders.toString(),
-      change: { value: 8.2, label: "+8.2%", type: "increase" as const },
-      sparklineData: stats.orderTrend?.map(d => ({ date: d.date, value: d.orders })),
+      sparklineData: stats.orderTrend?.map((d) => ({ date: d.date, value: d.orders })),
     },
     {
       label: "Ticket Promedio",
       value: formatPrice(stats.avgOrder),
-      change: { value: 5.3, label: "+5.3%", type: "increase" as const },
       sparklineData: undefined,
     },
     {
       label: "Stock Bajo",
       value: stats.lowStockProducts?.length || 0,
-      change: { value: 0, label: "Productos < 5 unidades", type: "stable" as const },
+      change: { value: 0, label: "Productos con menos de 5 unidades", type: "stable" as const },
       sparklineData: undefined,
-      variant: stats.lowStockProducts && stats.lowStockProducts.length > 0 ? 'primary' : 'default',
+      variant:
+        stats.lowStockProducts && stats.lowStockProducts.length > 0 ? ("primary" as const) : ("default" as const),
     },
   ];
 
+  const funnelMax = Math.max(
+    stats.cartStats?.totalCarts ?? 0,
+    stats.cartStats?.abandonedCarts ?? 0,
+    stats.cartStats?.convertedCarts ?? 0,
+    stats.orders,
+    1,
+  );
+
+  const funnelSteps = stats.funnelData ?? [];
+
+  const chartTickStyle = { fontSize: 11, fill: CHART_MUTED };
+
   return (
-    <div>
+    <div className="space-y-8">
       <PageHeader
         eyebrow="Panel de Administración"
-        title="Resumen General"
-        description="Una vista curada del rendimiento diario de KIOTO. Seguimiento del movimiento de productos Earthbound en la colección global."
+        title="Tablero"
+        description="Ventas, pedidos e inventario en un solo lugar. Filtrá por período para analizar tendencias."
+        className="mb-0"
       />
 
-      {/* Time Range Filter */}
-      <div className="flex items-center gap-4 mb-6">
-        <label className="text-sm font-medium text-on-surface-variant">Período:</label>
-        <div className="flex gap-2">
-          {(["7d", "30d", "90d"] as const).map((range) => (
+      <div className="rounded-xl border border-outline-variant/30 bg-surface-container-low p-4 md:p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
+              Período de análisis
+            </p>
+            <p className="mt-1 text-sm font-medium text-on-surface">{periodLabel}</p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {(["7d", "30d", "90d"] as const).map((range) => (
+              <button
+                key={range}
+                type="button"
+                onClick={() => setTimeRange(range)}
+                className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+                  timeRange === range && !showCustomRange
+                    ? "bg-primary text-on-primary shadow-sm"
+                    : "border border-outline-variant/40 bg-surface text-on-surface-variant hover:bg-surface-container"
+                }`}
+              >
+                {range === "7d" ? "7 días" : range === "30d" ? "30 días" : "90 días"}
+              </button>
+            ))}
             <button
-              key={range}
-              onClick={() => setTimeRange(range)}
-              className={`px-4 py-2 text-xs uppercase tracking-widest rounded transition-colors ${
-                timeRange === range && !showCustomRange
-                  ? "bg-primary text-on-primary"
-                  : "border border-outline-variant/40 hover:bg-surface"
+              type="button"
+              onClick={() => {
+                setShowCustomRange(!showCustomRange);
+                setTimeRange("custom");
+              }}
+              className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+                timeRange === "custom" && showCustomRange
+                  ? "bg-primary text-on-primary shadow-sm"
+                  : "border border-outline-variant/40 bg-surface text-on-surface-variant hover:bg-surface-container"
               }`}
             >
-              {range === "7d" ? "7 días" : range === "30d" ? "30 días" : "90 días"}
+              Personalizado
             </button>
-          ))}
-          <button
-            onClick={() => {
-              setShowCustomRange(!showCustomRange);
-              setTimeRange("custom");
-            }}
-            className={`px-4 py-2 text-xs uppercase tracking-widest rounded transition-colors ${
-              timeRange === "custom" && showCustomRange
-                ? "bg-primary text-on-primary"
-                : "border border-outline-variant/40 hover:bg-surface"
-            }`}
-          >
-            Personalizado
-          </button>
+            <Button variant="outline" size="sm" onClick={() => refetch()}>
+              <RefreshCw size={14} />
+              Actualizar
+            </Button>
+          </div>
         </div>
+
         {showCustomRange && (
-          <div className="flex items-center gap-2 ml-4">
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-outline-variant/20 pt-4">
             <input
               type="date"
               value={customFrom}
               onChange={(e) => setCustomFrom(e.target.value)}
-              className="px-3 py-2 text-sm border border-outline-variant/40 rounded bg-surface"
+              className="rounded-lg border border-outline-variant/40 bg-surface px-3 py-2 text-sm"
             />
-            <span className="text-on-surface-variant">a</span>
+            <span className="text-on-surface-variant">hasta</span>
             <input
               type="date"
               value={customTo}
               onChange={(e) => setCustomTo(e.target.value)}
-              className="px-3 py-2 text-sm border border-outline-variant/40 rounded bg-surface"
+              className="rounded-lg border border-outline-variant/40 bg-surface px-3 py-2 text-sm"
             />
           </div>
         )}
-<button
-           onClick={refetch}
-           className="ml-auto px-4 py-2 text-xs uppercase tracking-widest bg-surface-container-low border border-outline-variant/40 rounded hover:bg-surface transition-colors"
-         >
-           Actualizar
-         </button>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {statCards.map((stat) => (
           <MetricCard
             key={stat.label}
@@ -165,157 +220,243 @@ export function DashboardOverview() {
             value={stat.value}
             change={stat.change}
             sparklineData={stat.sparklineData}
+            variant={stat.variant}
           />
         ))}
       </div>
 
-      {/* Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
-        {/* Sales Area Chart */}
-        <div className="bg-surface-container-low rounded-lg p-6">
-          <h3 className="font-serif text-xl font-bold mb-2">Ventas Diarias</h3>
-          <p className="text-xs text-on-surface-variant mb-4">Últimos 7 días</p>
-          <div className="h-64">
-            {stats.salesData && stats.salesData.length > 0 ? (
+      <div>
+        <h2 className="mb-4 font-serif text-xl font-bold text-on-surface">Análisis del período</h2>
+
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+          <DashboardChartCard
+            title="Rendimiento comercial"
+            subtitle={`Ventas y pedidos · ${periodLabel}`}
+            className="xl:col-span-2"
+            heightClassName="h-80"
+          >
+            {stats.trendData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={stats.salesData}>
+                <ComposedChart data={stats.trendData} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
                   <defs>
-                    <linearGradient id="salesGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(220 80% 55%)" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="hsl(220 80% 55%)" stopOpacity={0} />
+                    <linearGradient id="dashboardSalesFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={CHART_PRIMARY} stopOpacity={0.22} />
+                      <stop offset="100%" stopColor={CHART_PRIMARY} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(0 0% 90% / 0.3)" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `$${v}`} />
-                  <Tooltip contentStyle={{ backgroundColor: "hsl(0 0% 100%)", border: "1px solid hsl(0 0% 90%)" }} />
-                  <Area type="monotone" dataKey="sales" stroke="hsl(220 80% 55%)" fill="url(#salesGradient)" />
-                </AreaChart>
+                  <CartesianGrid stroke={CHART_GRID} vertical={false} />
+                  <XAxis dataKey="date" tick={chartTickStyle} axisLine={false} tickLine={false} minTickGap={24} />
+                  <YAxis
+                    yAxisId="sales"
+                    tick={chartTickStyle}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(value) => `$${value}`}
+                    width={56}
+                  />
+                  <YAxis
+                    yAxisId="orders"
+                    orientation="right"
+                    tick={chartTickStyle}
+                    axisLine={false}
+                    tickLine={false}
+                    allowDecimals={false}
+                    width={32}
+                  />
+                  <Tooltip
+                    content={
+                      <DashboardChartTooltip
+                        valueFormatter={(value, key) =>
+                          key === "sales"
+                            ? formatSalesTooltipValue(value)
+                            : formatCountTooltipValue(value)
+                        }
+                      />
+                    }
+                  />
+                  <Area
+                    yAxisId="sales"
+                    type="monotone"
+                    dataKey="sales"
+                    name="Ventas"
+                    stroke={CHART_PRIMARY}
+                    fill="url(#dashboardSalesFill)"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                  />
+                  <Bar
+                    yAxisId="orders"
+                    dataKey="orders"
+                    name="Pedidos"
+                    fill={CHART_SECONDARY}
+                    radius={[4, 4, 0, 0]}
+                    barSize={16}
+                    opacity={0.9}
+                  />
+                </ComposedChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex items-center justify-center h-full text-on-surface-variant">No hay datos</div>
+              <DashboardChartEmpty />
             )}
-          </div>
+          </DashboardChartCard>
+
+          <DashboardChartCard
+            title="Estado de pedidos"
+            subtitle="Distribución en el período seleccionado"
+            heightClassName="h-80"
+          >
+            {stats.statusDistribution.length > 0 ? (
+              <div className="flex h-full flex-col gap-5 lg:flex-row lg:items-center">
+                <div className="mx-auto h-44 w-full max-w-[220px] flex-1">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={stats.statusDistribution}
+                        dataKey="value"
+                        nameKey="label"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={52}
+                        outerRadius={78}
+                        paddingAngle={2}
+                        stroke="none"
+                      >
+                        {stats.statusDistribution.map((entry) => (
+                          <Cell key={entry.status} fill={getStatusChartColor(entry.status)} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        content={
+                          <DashboardChartTooltip valueFormatter={(value) => `${value} pedidos`} />
+                        }
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <ul className="flex-1 space-y-2.5">
+                  {stats.statusDistribution.map((entry) => (
+                    <li key={entry.status} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="flex min-w-0 items-center gap-2 text-on-surface-variant">
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: getStatusChartColor(entry.status) }}
+                        />
+                        <span className="truncate">{entry.label}</span>
+                      </span>
+                      <span className="font-semibold tabular-nums text-on-surface">{entry.count}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <DashboardChartEmpty />
+            )}
+          </DashboardChartCard>
         </div>
 
-        {/* Orders Trend Bar Chart */}
-        <div className="bg-surface-container-low rounded-lg p-6">
-          <h3 className="font-serif text-xl font-bold mb-2">Pedidos Diarios</h3>
-          <p className="text-xs text-on-surface-variant mb-4">Actividad de la semana</p>
-          <div className="h-64">
-            {stats.orderTrend && stats.orderTrend.length > 0 ? (
+        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <DashboardChartCard
+            title="Productos más vendidos"
+            subtitle="Unidades vendidas en el período"
+          >
+            {stats.topProducts && stats.topProducts.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={stats.orderTrend}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(0 0% 90% / 0.3)" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} />
-                  <Tooltip contentStyle={{ backgroundColor: "hsl(0 0% 100%)", border: "1px solid hsl(0 0% 90%)" }} />
-                  <Bar dataKey="orders" fill="hsl(220 80% 55%)" radius={[4, 4, 0, 0]} />
-                </BarChart>
+                <ComposedChart
+                  layout="vertical"
+                  data={stats.topProducts}
+                  margin={{ top: 0, right: 12, left: 8, bottom: 0 }}
+                >
+                  <CartesianGrid stroke={CHART_GRID} horizontal={false} />
+                  <XAxis type="number" tick={chartTickStyle} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    tick={chartTickStyle}
+                    axisLine={false}
+                    tickLine={false}
+                    width={96}
+                  />
+                  <Tooltip
+                    content={
+                      <DashboardChartTooltip
+                        valueFormatter={(value) => `${value} unidades`}
+                      />
+                    }
+                  />
+                  <Bar dataKey="sales" name="Unidades" fill={CHART_ACCENT} radius={[0, 4, 4, 0]} barSize={18} />
+                </ComposedChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex items-center justify-center h-full text-on-surface-variant">No hay datos</div>
+              <DashboardChartEmpty message="Aún no hay ventas registradas" />
             )}
-          </div>
-        </div>
-      </div>
+          </DashboardChartCard>
 
-      {/* Status Distribution Pie Chart */}
-      <div className="bg-surface-container-low rounded-lg p-6 mb-12">
-        <h3 className="font-serif text-xl font-bold mb-2">Estado de Pedidos</h3>
-        <p className="text-xs text-on-surface-variant mb-4">Distribución actual</p>
-        <div className="h-64">
-          {stats.statusDistribution && stats.statusDistribution.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={stats.statusDistribution}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={40}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {stats.statusDistribution.map((entry, index) => {
-                    const colors = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#6b7280"];
-                    return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+          <DashboardChartCard
+            title="Embudo de checkout"
+            subtitle="Del carrito al pedido confirmado"
+            heightClassName="min-h-[18rem]"
+            contentClassName="h-auto"
+          >
+            {funnelSteps.length > 0 ? (
+              <div className="space-y-4">
+                {stats.cartStats && (
+                  <div className="rounded-lg bg-surface px-4 py-3">
+                    <p className="text-xs uppercase tracking-wide text-on-surface-variant">
+                      Tasa de conversión
+                    </p>
+                    <p className="mt-1 text-2xl font-serif font-bold text-primary">
+                      {stats.cartStats.conversionRate}
+                    </p>
+                  </div>
+                )}
+                <div className="space-y-3">
+                  {funnelSteps.map((step) => {
+                    const width = Math.max(8, (step.value / funnelMax) * 100);
+                    return (
+                      <div key={step.stage}>
+                        <div className="mb-1 flex items-center justify-between text-sm">
+                          <span className="text-on-surface-variant">{step.stage}</span>
+                          <span className="font-semibold tabular-nums text-on-surface">{step.value}</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-surface">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{ width: `${width}%`, backgroundColor: step.fill }}
+                          />
+                        </div>
+                      </div>
+                    );
                   })}
-                </Pie>
-                <Tooltip contentStyle={{ backgroundColor: "hsl(0 0% 100%)", border: "1px solid hsl(0 0% 90%)" }} />
-                <Legend layout="horizontal" verticalAlign="bottom" height={36} />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-full text-on-surface-variant">No hay datos</div>
-          )}
+                </div>
+              </div>
+            ) : (
+              <DashboardChartEmpty message="Sin datos de carritos" />
+            )}
+          </DashboardChartCard>
         </div>
       </div>
 
-      {/* Funnel Chart - Conversion */}
-      <div className="bg-surface-container-low rounded-lg p-6 mb-12">
-        <h3 className="font-serif text-xl font-bold mb-2">Conversión de Checkout</h3>
-        <p className="text-xs text-on-surface-variant mb-4">De carrito a envío</p>
-        <div className="h-64">
-          {stats.funnelData && stats.funnelData.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <FunnelChart>
-                <Tooltip contentStyle={{ backgroundColor: "hsl(0 0% 100%)", border: "1px solid hsl(0 0% 90%)" }} />
-                <Funnel dataKey="value" data={stats.funnelData} isAnimationActive>
-                  <LabelList position="right" fill="#666" stroke="none" />
-                </Funnel>
-              </FunnelChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-full text-on-surface-variant">No hay datos</div>
-          )}
-        </div>
-      </div>
-
-      {/* Top Products Horizontal Bar */}
-      <div className="bg-surface-container-low rounded-lg p-6 mb-12">
-        <h3 className="font-serif text-xl font-bold mb-2">Productos Top</h3>
-        <p className="text-xs text-on-surface-variant mb-4">Más vendidos</p>
-        <div className="h-64">
-          {stats.topProducts && stats.topProducts.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={stats.topProducts} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(0 0% 90% / 0.3)" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10 }} />
-                <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} width={80} />
-                <Tooltip contentStyle={{ backgroundColor: "hsl(0 0% 100%)", border: "1px solid hsl(0 0% 90%)" }} />
-                <Bar dataKey="sales" fill="hsl(220 80% 55%)" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-full text-on-surface-variant">No hay datos</div>
-          )}
-        </div>
-      </div>
-
-      {/* Low Stock Alert */}
       {stats.lowStockProducts && stats.lowStockProducts.length > 0 && (
-        <div className="bg-surface-container-low rounded-lg p-6 mb-12 border-l-4 border-warning">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-warning/10 flex items-center justify-center">
-                <AlertCircle className="text-warning" />
-              </div>
-              <div>
-                <h3 className="font-serif text-xl font-bold text-on-surface">
-                  ⚠️ Productos con Stock Bajo
-                </h3>
-                <p className="text-sm text-on-surface-variant">
-                  {stats.lowStockProducts.length} productos necesitan reposición inmediata
-                </p>
-              </div>
+        <DashboardChartCard
+          title="Alertas de inventario"
+          subtitle={`${stats.lowStockProducts.length} productos con stock crítico`}
+          className="border-l-4 border-l-warning"
+          heightClassName="h-auto"
+          contentClassName="h-auto"
+          action={
+            <Button variant="outline" size="sm" onClick={() => navigate("/admin/products")}>
+              Ver catálogo
+            </Button>
+          }
+        >
+          <div className="flex items-start gap-3 mb-5 rounded-lg bg-warning/5 p-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-warning/10">
+              <AlertCircle className="text-warning" size={20} />
             </div>
-            <button
-              onClick={() => window.location.href = '/admin/products'}
-              className="font-bold text-xs uppercase tracking-widest px-4 py-2 bg-surface-container border border-outline-variant/40 rounded hover:bg-surface transition-colors"
-            >
-              Ver Productos
-            </button>
+            <p className="text-sm text-on-surface-variant">
+              Reponé estos productos para evitar quedar sin stock en la tienda.
+            </p>
           </div>
 
           {/* Table - Desktop */}
@@ -338,13 +479,13 @@ export function DashboardOverview() {
                 </tr>
               </thead>
               <tbody>
-                {stats.lowStockProducts.map((product, idx) => {
+                {stats.lowStockProducts.map((product) => {
                   const stockPercent = Math.max(0, Math.min(100, (product.stock / 5) * 100));
                   const urgencyLevel = product.stock <= 0 ? 'critical' : product.stock <= 2 ? 'high' : 'medium';
                   
                   return (
                     <tr 
-                      key={idx} 
+                      key={product._id} 
                       className="border-b border-outline-variant/10 hover:bg-surface-container-low/50 transition-colors"
                     >
                       <td className="py-4 px-4">
@@ -354,7 +495,7 @@ export function DashboardOverview() {
                           </div>
                           <div>
                             <p className="font-medium text-on-surface">{product.name}</p>
-                            <p className="text-xs text-on-surface-variant">ID: {idx + 1}</p>
+                            <p className="text-xs text-on-surface-variant">ID: …{product._id.slice(-6)}</p>
                           </div>
                         </div>
                       </td>
@@ -386,10 +527,8 @@ export function DashboardOverview() {
                       <td className="py-4 px-4 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <button
-                            onClick={() => {
-                              // Navigate to product edit
-                              window.location.href = `/admin/products`;
-                            }}
+                            type="button"
+                            onClick={() => navigate(`/admin/products/${product._id}/edit`)}
                             className="px-3 py-1.5 text-xs font-medium text-primary border border-primary/30 rounded hover:bg-primary/5 transition-colors"
                           >
                             Editar Stock
@@ -405,12 +544,12 @@ export function DashboardOverview() {
 
           {/* Mobile Cards */}
           <div className="md:hidden space-y-3">
-            {stats.lowStockProducts.map((product, idx) => {
+            {stats.lowStockProducts.map((product) => {
               const stockPercent = Math.max(0, Math.min(100, (product.stock / 5) * 100));
               
               return (
                 <div 
-                  key={idx} 
+                  key={product._id} 
                   className="bg-surface-container rounded-lg p-4 border border-outline-variant/20"
                 >
                   <div className="flex items-start justify-between mb-3">
@@ -446,92 +585,104 @@ export function DashboardOverview() {
                   </div>
 
                   <button
-                    onClick={() => window.location.href = '/admin/products'}
+                    type="button"
+                    onClick={() => navigate(`/admin/products/${product._id}/edit`)}
                     className="w-full py-2 text-xs font-medium text-primary border border-primary/30 rounded hover:bg-primary/5 transition-colors"
                   >
-                    Ir a Productos
+                    Editar Stock
                   </button>
                 </div>
               );
             })}
           </div>
-        </div>
+        </DashboardChartCard>
       )}
 
-      {/* Recent Orders with Pagination */}
-      <section className="mt-12">
-        <div className="flex justify-between items-end mb-8">
-          <div>
-            <h3 className="font-serif text-2xl font-bold">Pedidos Recientes</h3>
-            <p className="text-sm text-on-surface-variant mt-1">
-              Las últimas adquisiciones curadas por tus clientes
-            </p>
-          </div>
-          {/* CSV Export */}
-          <button
+      <DashboardChartCard
+        title="Pedidos recientes"
+        subtitle="Últimos movimientos del período filtrado"
+        heightClassName="h-auto"
+        contentClassName="h-auto"
+        action={
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => {
-              const headers = ["Cliente", "Estado", "Fecha", "Total"];
-              const rows = recentOrders.map(o => [o.customer, o.status, o.date, o.total]);
-              const csv = [headers, ...rows].map(r => r.join(",")).join("\n");
-              const blob = new Blob([csv], { type: "text/csv" });
+              const csv = rowsToCsv([
+                ["Cliente", "Estado", "Fecha", "Total"],
+                ...recentOrders.map((o) => [
+                  o.customer,
+                  ORDER_STATUS_LABELS[o.status],
+                  o.date,
+                  o.total,
+                ]),
+              ]);
+              const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
               const url = URL.createObjectURL(blob);
               const a = document.createElement("a");
               a.href = url;
               a.download = `pedidos-${new Date().toISOString().split("T")[0]}.csv`;
               a.click();
+              URL.revokeObjectURL(url);
             }}
-            className="font-bold text-xs uppercase tracking-widest border-b border-primary text-primary pb-1 hover:opacity-70 transition-opacity flex items-center gap-2"
           >
-            <span>📊</span> Exportar CSV
-          </button>
-        </div>
+            <Download size={14} />
+            Exportar CSV
+          </Button>
+        }
+      >
+        {recentOrders.length > 0 ? (
+          <>
+            <DataTable
+              columns={[
+                { key: "customer", label: "Cliente" },
+                {
+                  key: "status",
+                  label: "Estado",
+                  render: (value) => <StatusBadge status={value as RecentOrder["status"]} />,
+                },
+                { key: "date", label: "Fecha" },
+                {
+                  key: "total",
+                  label: "Total",
+                  render: (value) => (
+                    <span className="font-serif font-bold text-primary">
+                      {formatPrice(Number(value))}
+                    </span>
+                  ),
+                },
+              ]}
+              data={recentOrders}
+            />
 
-        <DataTable
-          columns={[
-            { key: "customer", label: "Cliente" },
-            {
-              key: "status",
-              label: "Estado",
-              render: (value) => <StatusBadge status={value as any} />,
-            },
-            { key: "date", label: "Fecha" },
-            {
-              key: "total",
-              label: "Total",
-              render: (value) => (
-                <span className="font-serif font-bold text-primary">
-                  {formatPrice(Number(value))}
+            {totalPages > 1 && (
+              <div className="mt-6 flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="rounded border border-outline-variant/40 px-3 py-1 text-sm hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Anterior
+                </button>
+                <span className="text-sm text-on-surface-variant">
+                  Página {currentPage} de {totalPages}
                 </span>
-              ),
-            },
-          ]}
-          data={recentOrders}
-        />
-
-        {/* Pagination Controls */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 mt-6">
-            <button
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              className="px-3 py-1 text-sm border border-outline-variant/40 rounded hover:bg-surface disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Anterior
-            </button>
-            <span className="text-sm text-on-surface-variant">
-              Página {currentPage} de {totalPages}
-            </span>
-            <button
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              className="px-3 py-1 text-sm border border-outline-variant/40 rounded hover:bg-surface disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Siguiente
-            </button>
-            <span className="ml-4 text-xs text-on-surface-variant">5 por página</span>
-          </div>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="rounded border border-outline-variant/40 px-3 py-1 text-sm hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Siguiente
+                </button>
+              </div>
+            )}
+          </>
+        ) : (
+          <DashboardChartEmpty message="No hay pedidos en este período" />
         )}
-      </section>
+      </DashboardChartCard>
     </div>
   );
 }

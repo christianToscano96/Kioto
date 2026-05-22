@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { MetricCard } from "@/components/ui/MetricCard";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { Input } from "@/components/ui/Input";
 import { useProductsStore } from "@/store/products";
 import { showToast } from "@/components/ui/Toast";
@@ -196,12 +197,14 @@ try {
 
   return (
     <div>
-      {/* Header with title and actions */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <h1 className="text-2xl font-serif font-bold text-on-surface">
-          Productos
-        </h1>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between mb-8">
+        <PageHeader
+          title="Productos"
+          description="Gestiona el catálogo, stock y publicación de la tienda."
+          eyebrow="Panel de Administración"
+          className="mb-0"
+        />
+        <div className="flex items-center gap-2 shrink-0">
           {selectedProducts.length > 0 && (
             <Button variant="destructive" size="sm" onClick={handleDeleteSelected}>
               <Trash2 />
