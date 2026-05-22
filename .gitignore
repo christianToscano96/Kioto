@@ -42,6 +42,8 @@ coverage/
 # Frontend specific
 .vite/
 .parcel-cache/
+frontend/vite.config.js
+frontend/vite.config.d.ts
 
 # Expo (mobile)
 .expo/
