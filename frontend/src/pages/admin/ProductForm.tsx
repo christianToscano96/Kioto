@@ -135,7 +135,7 @@ export function ProductForm() {
   const isEdit = !!id;
 
   const products = useProductsStore((state) => state.products);
-  const isLoading = useProductsStore((state) => state.isLoading);
+  const isLoading = useProductsStore((state) => state.isLoadingAdmin);
   const createProduct = useProductsStore((state) => state.createProduct);
   const updateProduct = useProductsStore((state) => state.updateProduct);
   const fetchAdminProducts = useProductsStore((state) => state.fetchAdminProducts);

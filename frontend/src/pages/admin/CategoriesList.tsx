@@ -7,7 +7,7 @@ import { Plus, Edit2, Trash2 } from '@/components/icons';
 
 export function CategoriesList() {
   const categories = useCategoriesStore((state) => state.categories);
-  const isLoading = useCategoriesStore((state) => state.isLoading);
+  const isLoading = useCategoriesStore((state) => state.isLoadingAdmin);
   const error = useCategoriesStore((state) => state.error);
   const fetchCategories = useCategoriesStore((state) => state.fetchCategories);
   const deleteCategory = useCategoriesStore((state) => state.deleteCategory);

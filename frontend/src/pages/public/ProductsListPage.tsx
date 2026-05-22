@@ -21,7 +21,8 @@ import { SortDropdown, type SortOption } from "@/components/ui/SortDropdown";
 import { ViewToggle } from "@/components/ui/ViewToggle";
 import { PriceRangeFilter } from "@/components/ui/PriceRangeFilter";
 import { BackButton } from "@/components/ui/BackButton";
-import { Filter, ArrowLeft, Loader2 } from "@/components/icons";
+import { Filter, ArrowLeft } from "@/components/icons";
+import { ProductSkeleton } from "@/components/ui/ProductSkeleton";
 import { useDeviceType } from "@/hooks/useDeviceType";
 import { productHasColor, productHasSize } from "@shared/index";
 import { useDebounce } from "@/hooks/useDebounce";
@@ -49,7 +50,7 @@ export function ProductsListPage() {
   const [availableColors, setAvailableColors] = useState<string[]>([]);
   const [showFiltersDrawer, setShowFiltersDrawer] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement>(null);
-  const { products, isLoading, error } = useProductsStore();
+  const { products, isLoadingList, isRefreshingList, error } = useProductsStore();
   const fetchProducts = useProductsStore.getState().fetchProducts;
   // Quick Add Sidebar (right drawer — desktop)
   const quickAddSidebar = useQuickAddSidebar();
@@ -248,39 +249,44 @@ export function ProductsListPage() {
     );
   }, []);
 
-  if (isLoading) {
-    return (
-      <>
-        <PublicHeader />
-        <div className="min-h-screen bg-background">
-          <PageContainer>
-            <div className="min-h-[600px] flex items-center justify-center">
-              <Loader2 className="animate-spin h-8 w-8 text-primary" />
-            </div>
-          </PageContainer>
-        </div>
-      </>
-    );
-  }
-
-  if (error) {
+  if (error && products.length === 0) {
     return (
       <>
         <PublicHeader />
         <div className="min-h-screen bg-background flex items-center justify-center">
-          <div className="p-4 bg-primary-container text-on-primary rounded-lg text-center max-w-md">
-            Error al cargar los productos. Por favor, intenta nuevamente.
-          </div>
+          <PageContainer>
+            <div className="p-6 bg-surface-container rounded-lg text-center max-w-md mx-auto">
+              <p className="text-on-surface-variant mb-4">
+                Error al cargar los productos. El servidor puede estar despertando; intenta de nuevo en unos segundos.
+              </p>
+              <button
+                type="button"
+                onClick={() => fetchProducts()}
+                className="inline-flex items-center justify-center bg-primary text-on-primary font-medium text-sm px-6 py-2.5 rounded-md hover:bg-primary-hover transition-colors"
+              >
+                Reintentar
+              </button>
+            </div>
+          </PageContainer>
         </div>
+        <Footer />
       </>
     );
   }
+
+  const isInitialLoad = isLoadingList && products.length === 0;
 
   const effectiveVariant = view;
 
   return (
     <>
       <PublicHeader />
+
+      {isRefreshingList && (
+        <div className="bg-primary-container/30 text-primary text-center text-xs py-1.5 font-label uppercase tracking-wider">
+          Actualizando catálogo…
+        </div>
+      )}
 
       <PageContainer>
       
@@ -361,7 +367,14 @@ export function ProductsListPage() {
               <ViewToggle view={view} onChange={setView} />
             </div>
 
-            {filteredProducts.length === 0 ? (
+            {isInitialLoad ? (
+              <div aria-busy="true" aria-label="Cargando productos">
+                <p className="text-sm text-on-surface-variant text-center mb-6">
+                  Preparando nuestro catálogo…
+                </p>
+                <ProductSkeleton count={12} />
+              </div>
+            ) : filteredProducts.length === 0 ? (
               <div className="text-center py-16">
                 <p className="text-on-surface-variant font-body text-lg">
                   {searchQuery || selectedCategory

@@ -25,7 +25,7 @@ const ITEMS_PER_PAGE_OPTIONS = [10, 20, 50];
 
 export function ProductsList() {
   const products = useProductsStore((state) => state.products);
-  const isLoading = useProductsStore((state) => state.isLoading);
+  const isLoading = useProductsStore((state) => state.isLoadingAdmin);
   const error = useProductsStore((state) => state.error);
   const fetchAdminProducts = useProductsStore(
     (state) => state.fetchAdminProducts,

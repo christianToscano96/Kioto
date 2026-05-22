@@ -1,16 +1,19 @@
 import axios from 'axios';
 import type { User, Product, Cart, CartItem, Order, Category, Settings } from '../../../shared/src/index';
 
-// Get base URL without /api for socket.io
-const getBaseUrl = () => {
+// Get base URL without /api for socket.io and health checks
+export const getApiOrigin = () => {
   const apiUrl = import.meta.env?.VITE_API_URL ?? 'http://localhost:4000/api';
-  return apiUrl.replace('/api', '');
+  return apiUrl.replace(/\/api\/?$/, '');
 };
+
+const getBaseUrl = getApiOrigin;
 
 // Create axios instance with credentials
 export const api = axios.create({
   baseURL: import.meta.env?.VITE_API_URL ?? 'http://localhost:4000/api',
   withCredentials: true,
+  timeout: 15000,
 });
 
 // Add response interceptor for auth errors - only redirect for protected routes
@@ -51,8 +54,13 @@ export const authApi = {
 
 // Products API (public - for storefront)
 export const productsApi = {
-  list: async () => {
-    const res = await api.get<{ products: Product[]; pagination: unknown }>('/public/products');
+  list: async (params?: { limit?: number; search?: string }) => {
+    const res = await api.get<{ products: Product[]; pagination: unknown }>('/public/products', {
+      params: {
+        limit: params?.limit ?? 100,
+        search: params?.search,
+      },
+    });
     return res.data.products || [];
   },
 
