@@ -40,6 +40,33 @@ export {
   productHasColor,
 } from './inventory';
 
+export type {
+  DeliveryMethod,
+  PaymentMethod,
+  ShippingQuote,
+  ArgentineProvinceId,
+  ArgentineProvince,
+} from './shipping';
+
+export {
+  LOCAL_POSTAL_CODE,
+  ARGENTINE_PROVINCES,
+  normalizePostalCode,
+  isLocalPostalCode,
+  getProvinceById,
+  getProvinceByName,
+  getMatchingProvinces,
+  getProvinceFromPostalCode,
+  isPostalCodeValidForProvince,
+  calculateShipping,
+  resolvePaymentMethod,
+  PICKUP_POINT,
+  formatShippingCost,
+  formatShippingMil,
+  formatShippingQuote,
+  milToArs,
+} from './shipping';
+
 import type { ColorStockLine, InventoryMode, SizeVariant } from './inventory';
 
 // Product Types

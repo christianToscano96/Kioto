@@ -1,15 +1,15 @@
-import { useState } from "react";
-import { useCartStore } from "@/store/cart";
-import type { CartItem } from "@shared/index";
-import { showToast } from "@/components/ui/Toast";
+import { Link } from 'react-router-dom';
+import { useState } from 'react';
+import { useCartStore } from '@/store/cart';
+import type { CartItem } from '@shared/index';
+import { showToast } from '@/components/ui/Toast';
 import { Plus, Minus, ImageOff, Loader2 } from '@/components/icons';
 
 interface CartItemCardProps {
   item: CartItem;
 }
 
-// Quantity Selector Component
-const QuantitySelector = ({
+function QuantitySelector({
   quantity,
   onDecrease,
   onIncrease,
@@ -19,27 +19,33 @@ const QuantitySelector = ({
   onDecrease: () => void;
   onIncrease: () => void;
   disabled?: boolean;
-}) => (
-  <div className="flex items-center gap-1">
-    <button
-      onClick={onDecrease}
-      disabled={disabled}
-      className="w-7 h-7 sm:w-9 sm:h-9 flex items-center justify-center text-xs hover:text-primary transition-colors disabled:opacity-50 rounded border border-outline-variant min-h-[44px] min-w-[44px]"
-      aria-label="Disminuir cantidad"
-    >
-      <Minus size={14} />
-    </button>
-    <span className="text-on-surface font-bold text-xs sm:text-sm min-w-[1.5ch] text-center">{quantity}</span>
-    <button
-      onClick={onIncrease}
-      disabled={disabled}
-      className="w-7 h-7 sm:w-9 sm:h-9 flex items-center justify-center text-xs hover:text-primary transition-colors disabled:opacity-50 rounded border border-outline-variant min-h-[44px] min-w-[44px]"
-      aria-label="Aumentar cantidad"
-    >
-      <Plus size={14} />
-    </button>
-  </div>
-);
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        type="button"
+        onClick={onDecrease}
+        disabled={disabled || quantity <= 1}
+        className="w-9 h-9 flex items-center justify-center hover:text-primary transition-colors disabled:opacity-50 rounded border border-outline-variant"
+        aria-label="Disminuir cantidad"
+      >
+        <Minus size={14} />
+      </button>
+      <span className="text-on-surface font-bold text-sm min-w-[1.5ch] text-center tabular-nums">
+        {quantity}
+      </span>
+      <button
+        type="button"
+        onClick={onIncrease}
+        disabled={disabled}
+        className="w-9 h-9 flex items-center justify-center hover:text-primary transition-colors disabled:opacity-50 rounded border border-outline-variant"
+        aria-label="Aumentar cantidad"
+      >
+        <Plus size={14} />
+      </button>
+    </div>
+  );
+}
 
 export function CartItemCard({ item }: CartItemCardProps) {
   const updateCartItem = useCartStore((state) => state.updateCartItem);
@@ -48,15 +54,20 @@ export function CartItemCard({ item }: CartItemCardProps) {
   const [isRemoving, setIsRemoving] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // Get the cart item ID (not product ID) - the _id from the cart item
-  const cartItemId = (item as any)._id || item.productId;
+  const cartItemId = item._id || item.productId;
+  const product = item.product;
+  const name = product?.name || 'Producto';
+  const price = item.price || product?.price || 0;
+  const lineTotal = price * item.quantity;
+  const image = product?.images?.[0] ?? null;
+  const size = item.size;
+  const color = item.color;
 
   const handleQuantityChange = async (newQuantity: number) => {
     if (newQuantity < 1) return;
     setIsUpdating(true);
     try {
       await updateCartItem(cartItemId, newQuantity);
-      showToast({ type: 'success', title: 'Cantidad actualizada' });
     } catch {
       showToast({ type: 'error', title: 'Error al actualizar cantidad' });
     } finally {
@@ -69,7 +80,7 @@ export function CartItemCard({ item }: CartItemCardProps) {
     setIsRemoving(true);
     try {
       await removeCartItem(cartItemId);
-      showToast({ type: 'success', title: 'Producto eliminado del carrito' });
+      showToast({ type: 'success', title: 'Producto eliminado' });
     } catch {
       showToast({ type: 'error', title: 'Error al eliminar producto' });
     } finally {
@@ -77,81 +88,76 @@ export function CartItemCard({ item }: CartItemCardProps) {
     }
   };
 
-// Get product info - backend now populates 'product' field
-   const product = item.product;
-   const name = product?.name || "Product";
-   const price = item.price || product?.price || 0;
-   const images = product?.images;
-   const image = images && images.length > 0 ? images[0] : null;
-   const description = product?.description || "";
-
   return (
-    <div className="flex flex-row md:flex-row gap-3 sm:gap-6 pb-6 sm:pb-8 border-b border-dashed border-outline-variant/40">
-      {/* Product Image */}
-      <div className="w-20 md:w-36 aspect-square bg-surface-container overflow-hidden rounded-lg relative shrink-0">
+    <div className="flex gap-4 sm:gap-6 pb-6 sm:pb-8 border-b border-dashed border-outline-variant/40">
+      <Link
+        to={`/products/${item.productId}`}
+        className="w-24 sm:w-36 aspect-square bg-surface-container overflow-hidden rounded-lg shrink-0"
+      >
         {image ? (
-          <img
-            src={image}
-            alt={name}
-            className="w-full h-full object-cover"
-          />
+          <img src={image} alt={name} className="w-full h-full object-cover" />
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center text-on-surface-variant bg-gradient-to-br from-surface-container-high to-surface-container">
+          <div className="w-full h-full flex items-center justify-center text-on-surface-variant bg-surface-container-high">
             <ImageOff size={24} className="opacity-30" />
           </div>
         )}
-      </div>
+      </Link>
 
-      {/* Product Details */}
-      <div className="flex-1 flex flex-col justify-between min-w-0">
+      <div className="flex-1 min-w-0 flex flex-col justify-between">
         <div>
-          <div className="flex justify-between items-start mb-1">
-            <h3 className="text-sm sm:text-xl font-serif leading-tight line-clamp-1">{name}</h3>
-            <p className="text-sm sm:text-xl font-serif text-primary ml-2 shrink-0">
-              ${price.toFixed(2)}
+          <div className="flex justify-between items-start gap-3 mb-2">
+            <Link to={`/products/${item.productId}`} className="min-w-0">
+              <h3 className="text-base sm:text-xl font-serif leading-tight line-clamp-2 hover:text-primary transition-colors">
+                {name}
+              </h3>
+            </Link>
+            <p className="text-base sm:text-xl font-serif text-primary shrink-0">
+              ${lineTotal.toFixed(2)}
             </p>
           </div>
 
-          {/* Size/Color/Quantity Row - Horizontal on mobile */}
-          <div className="flex items-center gap-3 sm:gap-6 font-label text-[10px] sm:text-xs uppercase tracking-widest text-on-surface-variant mt-1 sm:mt-2">
-            <div>
-              <span className="block mb-0.5 opacity-60 hidden sm:block">Size</span>
-              <span className="text-on-surface font-bold">{(item as any).size || "M"}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              {(item as any).color && (
-                <div
-                  className="w-3 h-3 sm:w-4 sm:h-4 rounded-full border border-outline-variant"
-                  style={{
-                    backgroundColor: (item as any).color.startsWith("#")
-                      ? (item as any).color
-                      : "#8B7355",
-                  }}
-                />
+          {(size || color) && (
+            <div className="flex flex-wrap items-center gap-3 text-[10px] sm:text-xs uppercase tracking-widest text-on-surface-variant mb-3">
+              {size && (
+                <span>
+                  Talla <strong className="text-on-surface">{size}</strong>
+                </span>
               )}
-              <span className="text-on-surface font-bold">{(item as any).color || "Natural"}</span>
+              {color && (
+                <span className="inline-flex items-center gap-1.5">
+                  Color
+                  <span
+                    className="w-3.5 h-3.5 rounded-full border border-outline-variant inline-block"
+                    style={{ backgroundColor: color.startsWith('#') ? color : color }}
+                  />
+                  <strong className="text-on-surface">{color}</strong>
+                </span>
+              )}
             </div>
-            <div className="sm:ml-auto">
-              <QuantitySelector
-                quantity={item.quantity}
-                onDecrease={() => handleQuantityChange(item.quantity - 1)}
-                onIncrease={() => handleQuantityChange(item.quantity + 1)}
-                disabled={isUpdating || isSyncing}
-              />
-            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-4">
+            <QuantitySelector
+              quantity={item.quantity}
+              onDecrease={() => handleQuantityChange(item.quantity - 1)}
+              onIncrease={() => handleQuantityChange(item.quantity + 1)}
+              disabled={isUpdating || isSyncing}
+            />
+            <p className="text-xs text-on-surface-variant hidden sm:block">
+              ${price.toFixed(2)} c/u
+            </p>
           </div>
         </div>
 
-        <div className="mt-2 sm:mt-4">
-          <button
-            onClick={handleRemove}
-            disabled={isRemoving || isSyncing}
-            className="font-label text-[10px] sm:text-xs uppercase tracking-widest text-primary border-b border-dashed border-primary/40 pb-0.5 hover:border-primary transition-all disabled:opacity-50 min-h-[44px]"
-          >
-            {isRemoving && <Loader2 size={10} className="animate-spin inline mr-1" />}
-            {isRemoving ? "Removing..." : "Remove"}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={handleRemove}
+          disabled={isRemoving || isSyncing}
+          className="self-start mt-3 font-label text-[10px] sm:text-xs uppercase tracking-widest text-primary border-b border-dashed border-primary/40 pb-0.5 hover:border-primary transition-all disabled:opacity-50"
+        >
+          {isRemoving && <Loader2 size={10} className="animate-spin inline mr-1" />}
+          {isRemoving ? 'Eliminando...' : 'Eliminar'}
+        </button>
       </div>
     </div>
   );

@@ -3,7 +3,14 @@ import crypto from 'crypto';
 import Stripe from 'stripe';
 import { validate } from '../middleware/validation';
 import { createCheckoutSchema } from '../schemas/checkout';
-import { getOrCreateCart, calculateCartTotal, calculateShipping, markCartAsConverted } from '../utils/cart';
+import { getOrCreateCart, calculateCartTotal, markCartAsConverted } from '../utils/cart';
+import {
+  calculateShipping,
+  getProvinceByName,
+  isLocalPostalCode,
+  PICKUP_POINT,
+  type DeliveryMethod,
+} from '../utils/shipping';
 import Cart from '../models/Cart';
 import Order from '../models/Order';
 import { assertStockAvailable, deductStockForItems } from '../utils/stock';
@@ -54,8 +61,40 @@ router.post('/', validate(createCheckoutSchema), async (req: Request, res: Respo
     }
 
     const subtotal = calculateCartTotal(cart.items);
-    const shipping = calculateShipping(req.body.shippingDetails?.address?.postal_code || '');
+    const deliveryMethod = (req.body.deliveryMethod || 'shipping') as DeliveryMethod;
+    const postalCode = req.body.shippingDetails?.address?.postal_code || '';
+    const selectedProvinceId = getProvinceByName(req.body.shippingDetails?.address?.state || '')?.id;
+    const shippingQuote = calculateShipping(postalCode, deliveryMethod, selectedProvinceId);
+
+    if (!shippingQuote.isValid) {
+      res.status(400).json({ error: shippingQuote.label });
+      return;
+    }
+
+    if (deliveryMethod === 'pickup' && !isLocalPostalCode(postalCode)) {
+      res.status(400).json({ error: 'El retiro en punto solo está disponible para CP 4512' });
+      return;
+    }
+
+    const paymentMethod = 'galio';
+    const shipping = shippingQuote.cost;
     const total = subtotal + shipping;
+
+    const shippingDetails = {
+      ...req.body.shippingDetails,
+      address: {
+        ...req.body.shippingDetails.address,
+        postal_code: postalCode,
+        ...(deliveryMethod === 'pickup'
+          ? {
+              line1: PICKUP_POINT.address,
+              city: 'Luján de Cuyo',
+              state: 'Mendoza',
+              country: req.body.shippingDetails.address.country || 'AR',
+            }
+          : {}),
+      },
+    };
 
 // Fake checkout: Create order directly without Stripe (no transactions for standalone MongoDB)
     const order = await Order.create({
@@ -71,7 +110,9 @@ router.post('/', validate(createCheckoutSchema), async (req: Request, res: Respo
       shipping,
       total,
       status: 'pending',
-      shippingDetails: req.body.shippingDetails,
+      deliveryMethod,
+      paymentMethod,
+      shippingDetails,
     });
 
 // Create notification for admin
@@ -84,18 +125,15 @@ router.post('/', validate(createCheckoutSchema), async (req: Request, res: Respo
     // Mark cart as converted (customer initiated checkout)
     await markCartAsConverted(sessionId);
 
-    // Create GalioPay payment link (optimized)
     let paymentUrl = null;
     try {
       const galioItems = [
-        // Product items
         ...cart.items.map(item => ({
           title: (item.productId as any)?.name || 'Product',
           quantity: item.quantity,
           unitPrice: item.price,
           currencyId: 'ARS',
         })),
-        // Shipping as separate line item (only if > 0)
         ...(shipping > 0 ? [{
           title: 'Envío',
           quantity: 1,
@@ -104,7 +142,6 @@ router.post('/', validate(createCheckoutSchema), async (req: Request, res: Respo
         }] : []),
       ];
 
-      // Run GalioPay creation
       const galioLink = await createPaymentLink({
         items: galioItems,
         referenceId: order._id.toString(),
@@ -116,14 +153,11 @@ router.post('/', validate(createCheckoutSchema), async (req: Request, res: Respo
         sandbox: process.env.GALIO_SANDBOX === 'true',
       });
 
-      // Save GalioPay payment ID to order
       order.galioPaymentId = galioLink.url;
       paymentUrl = galioLink.url;
       await order.save();
     } catch (galioError) {
       console.error('GalioPay error creating payment link:', galioError);
-      // Fallback: create placeholder paymentUrl so user can complete payment manually
-      // This ensures the order flow doesn't break if GalioPay API is down
       paymentUrl = `https://pay.galio.app/pay/${order._id}`;
     }
 
@@ -141,7 +175,11 @@ router.post('/', validate(createCheckoutSchema), async (req: Request, res: Respo
       success: true,
       message: 'Order created successfully',
       shipping,
+      shippingLabel: shippingQuote.label,
+      deliveryMethod,
+      paymentMethod,
       paymentUrl,
+      pickupPoint: deliveryMethod === 'pickup' ? PICKUP_POINT : undefined,
     });
   } catch (error) {
     console.error('Checkout error:', error);

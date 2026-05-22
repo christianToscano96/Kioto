@@ -101,6 +101,43 @@ export function SecurityBadge({ message, className = '' }: SecurityBadgeProps) {
   );
 }
 
+interface FloatingLabelSelectProps {
+  label: string;
+  value?: string;
+  onChange?: (event: React.ChangeEvent<HTMLSelectElement>) => void;
+  children: ReactNode;
+  className?: string;
+}
+
+export function FloatingLabelSelect({
+  label,
+  value,
+  onChange,
+  children,
+  className = '',
+}: FloatingLabelSelectProps) {
+  return (
+    <div className={`relative ${className}`}>
+      <label className="block font-label text-xs uppercase tracking-widest text-on-surface/60 mb-2">
+        {label}
+      </label>
+      <select
+        value={value}
+        onChange={onChange}
+        className="relative z-10 w-full bg-background border-0 border-b border-outline py-3 pr-8 focus:border-primary transition-colors font-body text-lg px-0 appearance-none cursor-pointer"
+      >
+        {children}
+      </select>
+      <span
+        aria-hidden
+        className="pointer-events-none absolute right-0 bottom-3 text-on-surface/50 text-sm"
+      >
+        ▾
+      </span>
+    </div>
+  );
+}
+
 interface PrimaryButtonProps {
   children: ReactNode;
   onClick?: () => void;

@@ -1,11 +1,9 @@
-import { Eye, Plus, Grid, X, Minus, Search, User, Loader2 } from '@/components/icons';
-
-import { useState, useEffect } from "react";
+import { X, Loader2 } from '@/components/icons';
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   useCartItems,
   useCartTotal,
-  useCartItemCount,
   useCartIsLoading,
 } from "@/store/cart";
 import { PublicHeader } from "@/components/layout/PublicHeader";
@@ -14,6 +12,7 @@ import {
   Stepper,
   FormSection,
   FloatingLabelInput,
+  FloatingLabelSelect,
   SecurityBadge,
   PrimaryButton,
 } from "@/components/checkout/CheckoutFormComponents";
@@ -21,62 +20,122 @@ import { OrderSummary } from "@/components/checkout/OrderSummary";
 import { api } from "@/lib/api";
 import { showToast } from "@/components/ui/Toast";
 import { BackButton } from '@/components/ui/BackButton';
+import {
+  ARGENTINE_PROVINCES,
+  PICKUP_POINT,
+  calculateShipping,
+  formatShippingQuote,
+  getProvinceById,
+  getProvinceFromPostalCode,
+  isLocalPostalCode,
+  type ArgentineProvinceId,
+  type DeliveryMethod,
+} from '@shared/index';
+
+type CheckoutStep = "shipping" | "payment" | "review";
+
+interface CheckoutFormData {
+  name: string;
+  email: string;
+  address: {
+    line1: string;
+    line2: string;
+    city: string;
+    state: string;
+    postal_code: string;
+    country: string;
+  };
+}
+
+const initialFormData: CheckoutFormData = {
+  name: "",
+  email: "",
+  address: {
+    line1: "",
+    line2: "",
+    city: "",
+    state: "Mendoza",
+    postal_code: "",
+    country: "AR",
+  },
+};
+
+function validateShippingStep(
+  formData: CheckoutFormData,
+  deliveryMethod: DeliveryMethod,
+  provinceId: ArgentineProvinceId,
+  shippingQuote: ReturnType<typeof calculateShipping>,
+): string | null {
+  if (!formData.email.trim()) return 'Ingresá tu email';
+  if (!formData.name.trim()) return 'Ingresá tu nombre';
+  if (!formData.address.postal_code.trim()) return 'Ingresá tu código postal';
+
+  if (deliveryMethod === 'shipping') {
+    if (!formData.address.line1.trim()) return 'Ingresá tu dirección';
+    if (!formData.address.city.trim()) return 'Ingresá tu ciudad';
+    if (!provinceId) return 'Seleccioná tu provincia';
+    if (!shippingQuote.isValid) return shippingQuote.label;
+  }
+
+  return null;
+}
 
 export function CheckoutPage() {
   const navigate = useNavigate();
   const items = useCartItems();
   const cartTotal = useCartTotal();
-  const cartItemCount = useCartItemCount();
   const cartLoading = useCartIsLoading();
 
-  const [step, setStep] = useState<"shipping" | "payment" | "review">("shipping");
+  const [step, setStep] = useState<CheckoutStep>("shipping");
+  const [formData, setFormData] = useState<CheckoutFormData>(initialFormData);
+  const [provinceId, setProvinceId] = useState<ArgentineProvinceId>('mendoza');
+  const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>('shipping');
+  const [error, setError] = useState<string | null>(null);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [storeTerms, setStoreTerms] = useState<string>("");
+  const [showTerms, setShowTerms] = useState(false);
+  const [submitStatus, setSubmitStatus] = useState<'idle' | 'creating' | 'redirecting'>('idle');
+  const provinceLockedByUser = useRef(false);
 
-  // Calculate shipping based on postal code (Y4512 = free local shipping)
-  const calculateShipping = (postalCode: string): number => {
-    if (postalCode === 'Y4512') return 0;
-    const numericCode = parseInt(postalCode.replace(/\D/g, ''), 10);
-    if (isNaN(numericCode)) return 15;
-    if (numericCode >= 1000 && numericCode <= 2000) return 5;
-    if (numericCode >= 3000 && numericCode <= 5000) return 10;
-    return 15;
-  };
-  const [formData, setFormData] = useState({
-    name: "",
-    email: "",
-    address: {
-      line1: "",
-      line2: "",
-      city: "",
-      state: "",
-      postal_code: "",
-      country: "US",
-    },
-  });
-
-  // Calculate shipping and total based on postal code
-  const shipping = calculateShipping(formData.address.postal_code);
+  const isLocal = isLocalPostalCode(formData.address.postal_code);
+  const shippingQuote = useMemo(
+    () => calculateShipping(formData.address.postal_code, deliveryMethod, provinceId),
+    [formData.address.postal_code, deliveryMethod, provinceId],
+  );
+  const shipping = shippingQuote.cost;
   const total = cartTotal + shipping;
 
-  // Load terms from settings
   useEffect(() => {
-    api.get('/settings').then(res => {
+    const postalCode = formData.address.postal_code.trim();
+    if (!postalCode || provinceLockedByUser.current) return;
+
+    const detected = getProvinceFromPostalCode(postalCode);
+    if (detected) {
+      setProvinceId(detected);
+      setFormData((prev) => ({
+        ...prev,
+        address: { ...prev.address, state: getProvinceById(detected).name },
+      }));
+    }
+  }, [formData.address.postal_code]);
+
+  useEffect(() => {
+    if (!isLocal && deliveryMethod === 'pickup') {
+      setDeliveryMethod('shipping');
+    }
+  }, [isLocal, deliveryMethod]);
+
+  useEffect(() => {
+    api.get('/settings').then((res) => {
       if (res.data?.policies?.terms) {
         setStoreTerms(res.data.policies.terms);
       }
     }).catch(() => {});
   }, []);
 
-  // Scroll to top on page load
   useEffect(() => {
     window.scrollTo(0, 0);
-  }, []);
-
-  const [paymentMethod] = useState<"transfer">("transfer"); // Only Galio Pay transfer
-  const [error, setError] = useState<string | null>(null);
-  const [termsAccepted, setTermsAccepted] = useState(false);
-  const [storeTerms, setStoreTerms] = useState<string>("");
-  const [showTerms, setShowTerms] = useState(false);
-  const [submitStatus, setSubmitStatus] = useState<'idle' | 'creating' | 'redirecting'>('idle');
+  }, [step]);
 
   const handleInputChange = (field: string, value: string) => {
     if (field.startsWith("address.")) {
@@ -90,52 +149,66 @@ export function CheckoutPage() {
     }
   };
 
+  const handlePostalCodeChange = (value: string) => {
+    provinceLockedByUser.current = false;
+    handleInputChange("address.postal_code", value);
+  };
+
+  const handleProvinceChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    provinceLockedByUser.current = true;
+    const nextProvinceId = event.target.value as ArgentineProvinceId;
+    setProvinceId(nextProvinceId);
+    setFormData((prev) => ({
+      ...prev,
+      address: { ...prev.address, state: getProvinceById(nextProvinceId).name },
+    }));
+  };
+
   const handleNext = () => {
-    if (step === "shipping") setStep("payment");
-    else if (step === "payment") setStep("review");
-    // Scroll to top when changing steps
+    if (step === "shipping") {
+      const validationError = validateShippingStep(formData, deliveryMethod, provinceId, shippingQuote);
+      if (validationError) {
+        showToast({ type: 'error', title: validationError });
+        return;
+      }
+      setStep("payment");
+    } else if (step === "payment") {
+      setStep("review");
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleBack = () => {
     if (step === "payment") setStep("shipping");
     else if (step === "review") setStep("payment");
-    // Scroll to top when changing steps
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     setSubmitStatus('creating');
     setError(null);
 
     try {
       const response = await api.post("/checkout", {
+        deliveryMethod,
+        paymentMethod: 'galio',
         shippingDetails: formData,
       });
 
       const data = response.data;
 
-      // Check if response indicates success
-      if (response.status !== 200) {
-        throw new Error(data.error || "Error al crear sesión de checkout");
+      if (response.status !== 200 || !data.success) {
+        throw new Error(data.error || "Error al crear la orden");
       }
 
-      // GalioPay checkout - redirect to payment page
-      if (data.success) {
-        showToast({ type: 'success', title: 'Orden creada correctamente' });
-        
-        if (data.paymentUrl) {
-          setSubmitStatus('redirecting');
-          window.location.href = data.paymentUrl;
-        } else {
-          // GalioPay link being created - redirect to success page with orderId
-          // Payment URL will be available via webhook
-          navigate(`/checkout/success?orderId=${data.orderId}`);
-        }
+      showToast({ type: 'success', title: 'Orden creada correctamente' });
+
+      if (data.paymentUrl) {
+        setSubmitStatus('redirecting');
+        window.location.href = data.paymentUrl;
       } else {
-        // Backend returned success: false
-        throw new Error(data.error || 'No se pudo crear la orden');
+        navigate(`/checkout/success?orderId=${data.orderId}&delivery=${deliveryMethod}`);
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Ocurrió un error";
@@ -145,7 +218,6 @@ export function CheckoutPage() {
     }
   };
 
-  // Stepper steps - dynamic based on current step
   const steps = [
     { number: "01", label: "Envío", active: step === "shipping" },
     { number: "02", label: "Pago", active: step === "payment" },
@@ -168,18 +240,19 @@ export function CheckoutPage() {
       <>
         <PublicHeader />
         <div className="min-h-screen bg-background flex items-center justify-center">
-          <div className="text-center py-16">
+          <div className="text-center py-16 px-4">
             <h1 className="text-3xl font-serif font-bold text-on-surface mb-4">
               Tu carrito está vacío
             </h1>
             <p className="text-on-surface-variant mb-8">
-              Agrega artículos antes de finalizar la compra.
+              Agregá artículos antes de finalizar la compra.
             </p>
             <button
+              type="button"
               onClick={() => navigate("/products")}
-              className="font-label uppercase tracking-widest px-8 py-3 bg-primary text-on-primary hover:bg-primary-container transition-colors"
+              className="font-label uppercase tracking-widest px-8 py-3 bg-primary text-on-primary hover:bg-primary-container transition-colors rounded-lg"
             >
-              Ver Productos
+              Ver productos
             </button>
           </div>
         </div>
@@ -192,132 +265,196 @@ export function CheckoutPage() {
     <>
       <PublicHeader />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-20">
-        {/* Checkout Process Indicator */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-20 pb-28 lg:pb-20">
         <div className="mb-16 mt-8 animate-fade-in">
-            <div className="text-center mt-6">
-              <BackButton label="Volver" showLabelOnMobile={true} page='checkout' />
-            </div>
-          <h1 className="font-serif text-4xl md:text-5xl lg:text-6xl tracking-tight mb-12">
-            Finalizar Compra
-          </h1>
-          <div style={{ animationDelay: '100ms' }}>
-            <Stepper steps={steps} />
+          <div className="text-center mt-6">
+            <BackButton label="Volver" showLabelOnMobile={true} page="checkout" />
           </div>
+          <h1 className="font-serif text-4xl md:text-5xl lg:text-6xl tracking-tight mb-12">
+            Finalizar compra
+          </h1>
+          <Stepper steps={steps} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 items-start">
-          {/* Forms Column */}
           <div className="lg:col-span-7 space-y-12">
-            {/* Step 1: Shipping Form */}
             {step === "shipping" && (
-              <form onSubmit={(e) => e.preventDefault()} className="animate-fade-in">
-                <FormSection title="Información de Contacto">
-                  <div className="space-y-6 animate-fade-in" style={{ animationDelay: '100ms' }}>
+              <form onSubmit={(event) => event.preventDefault()} className="animate-fade-in space-y-8">
+                <FormSection title="Información de contacto">
+                  <div className="space-y-6">
                     <FloatingLabelInput
-                      label="Correo Electrónico"
+                      label="Correo electrónico"
                       type="email"
                       placeholder="tu@email.com"
                       value={formData.email}
-                      onChange={(e) => handleInputChange("email", e.target.value)}
+                      onChange={(event) => handleInputChange("email", event.target.value)}
                     />
-                  </div>
-                </FormSection>
-
-                <FormSection title="Dirección de Envío" className="mt-8">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-fade-in" style={{ animationDelay: '200ms' }}>
                     <FloatingLabelInput
-                      label="Nombre Completo"
+                      label="Nombre completo"
                       value={formData.name}
-                      onChange={(e) => handleInputChange("name", e.target.value)}
-                    />
-                    <div className="md:col-span-2">
-                      <FloatingLabelInput
-                        label="Dirección"
-                        placeholder="Calle 123"
-                        value={formData.address.line1}
-                        onChange={(e) => handleInputChange("address.line1", e.target.value)}
-                      />
-                    </div>
-                    <FloatingLabelInput
-                      label="Ciudad"
-                      value={formData.address.city}
-                      onChange={(e) => handleInputChange("address.city", e.target.value)}
-                    />
-                    <FloatingLabelInput
-                      label="Código Postal"
-                      value={formData.address.postal_code}
-                      onChange={(e) => handleInputChange("address.postal_code", e.target.value)}
-                    />
-                    <FloatingLabelInput
-                      label="Provincia/Estado"
-                      value={formData.address.state}
-                      onChange={(e) => handleInputChange("address.state", e.target.value)}
+                      onChange={(event) => handleInputChange("name", event.target.value)}
                     />
                   </div>
                 </FormSection>
 
-                <section className="pt-8 flex gap-4 animate-fade-in" style={{ animationDelay: '300ms' }}>
+                <FormSection title="Código postal">
+                  <FloatingLabelInput
+                    label="Código postal"
+                    placeholder="4512, Y4512 o 1406"
+                    value={formData.address.postal_code}
+                    onChange={(event) => handlePostalCodeChange(event.target.value)}
+                  />
+                  {formData.address.postal_code && (
+                    <p className={`mt-3 text-sm ${shippingQuote.isValid ? 'text-on-surface-variant' : 'text-red-600'}`}>
+                      {shippingQuote.label} · {formatShippingQuote(shippingQuote)}
+                    </p>
+                  )}
+                </FormSection>
+
+                {isLocal && (
+                  <FormSection title="Forma de entrega (zona local)">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setDeliveryMethod('shipping')}
+                        className={`text-left p-4 rounded-xl border transition-all ${
+                          deliveryMethod === 'shipping'
+                            ? 'border-primary bg-primary-container/15 ring-1 ring-primary/20'
+                            : 'border-outline-variant/40 hover:border-outline-variant'
+                        }`}
+                      >
+                        <p className="font-label text-xs uppercase tracking-wider mb-1">Envío a domicilio</p>
+                        <p className="text-sm text-on-surface-variant">Gratis en CP 4512</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeliveryMethod('pickup')}
+                        className={`text-left p-4 rounded-xl border transition-all ${
+                          deliveryMethod === 'pickup'
+                            ? 'border-primary bg-primary-container/15 ring-1 ring-primary/20'
+                            : 'border-outline-variant/40 hover:border-outline-variant'
+                        }`}
+                      >
+                        <p className="font-label text-xs uppercase tracking-wider mb-1">Retiro en punto</p>
+                        <p className="text-sm text-on-surface-variant">{PICKUP_POINT.name}</p>
+                      </button>
+                    </div>
+                  </FormSection>
+                )}
+
+                {deliveryMethod === 'pickup' ? (
+                  <div className="rounded-xl border border-outline-variant/30 bg-surface-container p-5 text-sm text-on-surface-variant space-y-1">
+                    <p className="font-medium text-on-surface">{PICKUP_POINT.name}</p>
+                    <p>{PICKUP_POINT.address}</p>
+                    <p>{PICKUP_POINT.hours}</p>
+                    <p className="text-primary pt-2">{PICKUP_POINT.notes}</p>
+                  </div>
+                ) : (
+                  <FormSection title="Dirección de envío">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="md:col-span-2">
+                        <FloatingLabelInput
+                          label="Dirección"
+                          placeholder="Calle y número"
+                          value={formData.address.line1}
+                          onChange={(event) => handleInputChange("address.line1", event.target.value)}
+                        />
+                      </div>
+                      <FloatingLabelInput
+                        label="Ciudad"
+                        value={formData.address.city}
+                        onChange={(event) => handleInputChange("address.city", event.target.value)}
+                      />
+                      <FloatingLabelSelect
+                        label="Provincia"
+                        value={provinceId}
+                        onChange={handleProvinceChange}
+                      >
+                        {ARGENTINE_PROVINCES.map((province) => (
+                          <option key={province.id} value={province.id}>
+                            {province.name}
+                          </option>
+                        ))}
+                      </FloatingLabelSelect>
+                    </div>
+                  </FormSection>
+                )}
+
+                <section className="pt-4 flex flex-col sm:flex-row gap-4">
                   <button
                     type="button"
                     onClick={() => navigate("/cart")}
-                    className="px-6 py-3 border border-outline-variant  hover:bg-surface-container transition-colors"
+                    className="px-6 py-3 border border-outline-variant hover:bg-surface-container transition-colors rounded-lg"
                   >
-                    Volver al Carrito
+                    Volver al carrito
                   </button>
                   <PrimaryButton type="button" onClick={handleNext}>
-                    Continuar al Pago
+                    Continuar al pago
                   </PrimaryButton>
                 </section>
               </form>
             )}
 
-            {/* Step 2: Payment Method - Galio Pay Only */}
             {step === "payment" && (
-              <form onSubmit={(e) => e.preventDefault()} className="animate-fade-in">
-                <FormSection title="Método de Pago">
-                  <div className="space-y-4 animate-fade-in" style={{ animationDelay: '100ms' }}>
-                    <div className="p-6 border border-primary rounded-lg bg-primary-container/10">
-                      <div className="flex items-center gap-4">
-                        <span className="material-symbols-outlined text-3xl text-primary">account_balance</span>
-                        <div>
-                          <h3 className="font-serif text-lg font-bold text-on-surface">Transferencia Bancaria</h3>
-                          <p className="text-sm text-on-surface-variant">
-                            Pago seguro vía GalioPay. Recibirás las instrucciones al confirmar.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
+              <form onSubmit={(event) => event.preventDefault()} className="animate-fade-in space-y-8">
+                <FormSection title="Método de pago">
+                  <div className="p-6 border border-primary rounded-xl bg-primary-container/10">
+                    <h3 className="font-serif text-lg font-bold text-on-surface mb-2">
+                      Transferencia vía GalioPay
+                    </h3>
+                    <p className="text-sm text-on-surface-variant">
+                      Pagás por transferencia bancaria en una página segura de GalioPay.
+                      {isLocal && deliveryMethod === 'pickup'
+                        ? ' Después del pago, retirás en nuestro punto de entrega.'
+                        : isLocal
+                          ? ' Envío local gratis en CP 4512.'
+                          : ''}
+                    </p>
                   </div>
                 </FormSection>
 
-                <section className="pt-8 flex gap-4 animate-fade-in" style={{ animationDelay: '200ms' }}>
+                <section className="pt-4 flex flex-col sm:flex-row gap-4">
                   <button
                     type="button"
                     onClick={handleBack}
-                    className="px-6 py-3 border border-outline-variant hover:bg-surface-container transition-colors"
+                    className="px-6 py-3 border border-outline-variant hover:bg-surface-container transition-colors rounded-lg"
                   >
                     Volver
                   </button>
                   <PrimaryButton type="button" onClick={handleNext}>
-                    Revisar Pedido
+                    Revisar pedido
                   </PrimaryButton>
                 </section>
               </form>
             )}
 
-            {/* Step 3: Review */}
             {step === "review" && (
-              <form onSubmit={handleSubmit} className="animate-fade-in">
-                <FormSection title="Resumen del Pedido">
-                  <div className="space-y-4 animate-fade-in" style={{ animationDelay: '100ms' }}>
-                    <div className="flex justify-between py-2 border-b border-outline-variant">
+              <form onSubmit={handleSubmit} className="animate-fade-in space-y-8">
+                <FormSection title="Resumen del pedido">
+                  <div className="space-y-3 text-sm">
+                    <div className="flex justify-between py-2 border-b border-outline-variant/30">
+                      <span>Contacto</span>
+                      <span className="text-right">{formData.name}<br />{formData.email}</span>
+                    </div>
+                    <div className="flex justify-between py-2 border-b border-outline-variant/30">
+                      <span>Entrega</span>
+                      <span className="text-right max-w-[60%]">
+                        {deliveryMethod === 'pickup'
+                          ? `Retiro · ${PICKUP_POINT.address}`
+                          : `${formData.address.line1}, ${formData.address.city}`}
+                      </span>
+                    </div>
+                    <div className="flex justify-between py-2 border-b border-outline-variant/30">
+                      <span>CP</span>
+                      <span>{formData.address.postal_code}</span>
+                    </div>
+                    <div className="flex justify-between py-2 border-b border-outline-variant/30">
                       <span>Subtotal</span>
                       <span>${cartTotal.toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between py-2 border-b border-outline-variant">
+                    <div className="flex justify-between py-2 border-b border-outline-variant/30">
                       <span>Envío</span>
-                      <span>{shipping === 0 ? 'Gratis' : `$${shipping.toFixed(2)}`}</span>
+                      <span>{formatShippingQuote(shippingQuote)}</span>
                     </div>
                     <div className="flex justify-between py-2 text-lg font-bold">
                       <span>Total</span>
@@ -326,13 +463,12 @@ export function CheckoutPage() {
                   </div>
                 </FormSection>
 
-                {/* Terms Agreement */}
-                <div className="mt-6 p-4 bg-surface-container rounded-lg border border-outline-variant/30 animate-fade-in" style={{ animationDelay: '200ms' }}>
+                <div className="p-4 bg-surface-container rounded-lg border border-outline-variant/30">
                   <label className="flex items-start gap-3 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={termsAccepted}
-                      onChange={(e) => setTermsAccepted(e.target.checked)}
+                      onChange={(event) => setTermsAccepted(event.target.checked)}
                       className="w-5 h-5 mt-0.5 rounded border-outline focus:ring-2 focus:ring-primary"
                       required
                     />
@@ -343,74 +479,71 @@ export function CheckoutPage() {
                         onClick={() => setShowTerms(true)}
                         className="text-primary hover:underline font-medium"
                       >
-                        Términos y Condiciones
+                        términos y condiciones
                       </button>
                     </span>
                   </label>
                 </div>
 
                 {error && (
-                  <div className="p-4 bg-red-50 text-red-600 rounded-lg mb-4 animate-fade-in" style={{ animationDelay: '250ms' }}>
+                  <div className="p-4 bg-red-50 text-red-600 rounded-lg">
                     {error}
                   </div>
                 )}
 
-                <section className="pt-8 flex gap-4 animate-fade-in" style={{ animationDelay: '300ms' }}>
+                <section className="pt-4 flex flex-col sm:flex-row gap-4">
                   <button
                     type="button"
                     onClick={handleBack}
-                    className="px-6 py-3 border border-outline-variant  hover:bg-surface-container transition-colors"
+                    className="px-6 py-3 border border-outline-variant hover:bg-surface-container transition-colors rounded-lg"
                   >
                     Volver
                   </button>
                   <PrimaryButton type="submit" disabled={submitStatus !== 'idle' || !termsAccepted}>
-                    {submitStatus === 'creating' ? "Creando orden..." : submitStatus === 'redirecting' ? "Redirigiendo a GalioPay..." : "Confirmar Pedido"}
+                    {submitStatus === 'creating'
+                      ? 'Creando orden...'
+                      : submitStatus === 'redirecting'
+                        ? 'Redirigiendo a GalioPay...'
+                        : 'Confirmar y pagar con GalioPay'}
                   </PrimaryButton>
                 </section>
               </form>
             )}
           </div>
 
-          {/* Order Summary Sidebar */}
-          <OrderSummary items={items} subtotal={cartTotal} shipping={shipping} total={total} />
+          <OrderSummary
+            items={items}
+            subtotal={cartTotal}
+            shippingQuote={shippingQuote}
+            deliveryMethod={deliveryMethod}
+            total={total}
+          />
         </div>
 
-<SecurityBadge message="Tu conexión está encriptada y tus datos son manejados con cuidado artesanal." />
-       </main>
+        <SecurityBadge message="Tu conexión está encriptada y tus datos son manejados con cuidado artesanal." />
+      </main>
 
-{/* Terms Modal */}
-        {showTerms && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-background rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6 animate-fade-in">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold">Términos y Condiciones</h2>
-                <button
-                  onClick={() => setShowTerms(false)}
-                  className="text-on-surface hover:text-primary"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-              <div className="prose prose-sm max-w-none text-on-surface">
-                {storeTerms ? (
-                  <p className="whitespace-pre-wrap animate-fade-in" style={{ animationDelay: '100ms' }}>{storeTerms}</p>
-                ) : (
-                  <p>Términos y condiciones no configurados.</p>
-                )}
-              </div>
-              <div className="mt-6 flex justify-end animate-fade-in" style={{ animationDelay: '200ms' }}>
-                <button
-                  onClick={() => setShowTerms(false)}
-                  className="px-4 py-2 bg-primary text-on-primary rounded-lg"
-                >
-                  Cerrar
-                </button>
-              </div>
+      {showTerms && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-background rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">Términos y condiciones</h2>
+              <button type="button" onClick={() => setShowTerms(false)} className="text-on-surface hover:text-primary">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="prose prose-sm max-w-none text-on-surface">
+              {storeTerms ? (
+                <p className="whitespace-pre-wrap">{storeTerms}</p>
+              ) : (
+                <p>Términos y condiciones no configurados.</p>
+              )}
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-       <Footer />
+      <Footer />
     </>
   );
 }

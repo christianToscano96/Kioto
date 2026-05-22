@@ -11,9 +11,11 @@ export interface IOrder extends Document {
   total: number;
   status: OrderStatus;
   stripePaymentIntentId?: string;
-  galioPaymentId?: string;
-  paymentUrl?: string;
-  shippingDetails?: {
+    galioPaymentId?: string;
+    paymentUrl?: string;
+    deliveryMethod?: 'shipping' | 'pickup';
+    paymentMethod?: 'transfer' | 'galio';
+    shippingDetails?: {
     name: string;
     email: string;
     address: {
@@ -93,6 +95,16 @@ const orderSchema = new Schema<IOrder>(
     },
     paymentUrl: {
       type: String,
+    },
+    deliveryMethod: {
+      type: String,
+      enum: ['shipping', 'pickup'],
+      default: 'shipping',
+    },
+    paymentMethod: {
+      type: String,
+      enum: ['transfer', 'galio'],
+      default: 'galio',
     },
     shippingDetails: {
       name: { type: String },
