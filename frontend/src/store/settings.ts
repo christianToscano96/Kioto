@@ -44,6 +44,7 @@ fetchSettings: async () => {
      } catch (error) {
        const message = error instanceof Error ? error.message : 'Failed to update settings';
        set({ error: message });
+       throw error;
      } finally {
        set({ isLoading: false });
      }

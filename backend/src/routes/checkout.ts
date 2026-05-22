@@ -15,7 +15,7 @@ import Cart from '../models/Cart';
 import Order, { type IOrder } from '../models/Order';
 import { assertStockAvailable, deductStockForItems } from '../utils/stock';
 import { sendOrderConfirmationEmail } from '../services/email';
-import { createPaymentLink, getPayment } from '../services/galio';
+import { createPaymentLink, getPayment, getGalioSandbox } from '../services/galio';
 import { isGalioPaymentApproved, markOrderAsPaid } from '../utils/orderPayment';
 
 const router = Router();
@@ -115,7 +115,7 @@ async function attachGalioPaymentLink(
         failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/checkout/cancel?orderId=${order._id}`,
       },
       notificationUrl: `${process.env.PUBLIC_API_URL || 'http://localhost:4000'}/api/webhooks/galio`,
-      sandbox: process.env.GALIO_SANDBOX === 'true',
+      sandbox: await getGalioSandbox(),
     });
 
     order.paymentUrl = galioLink.url;

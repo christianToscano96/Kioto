@@ -19,30 +19,48 @@ export interface GalioPaymentLink {
   sandbox: boolean;
 }
 
+interface GalioRuntimeConfig {
+  apiKey: string;
+  clientId: string;
+  sandbox: boolean;
+}
+
 // Cache settings for 5 minutes
-let settingsCache: { apiKey: string; clientId: string } | null = null;
+let settingsCache: GalioRuntimeConfig | null = null;
 let settingsCacheTime = 0;
 
-async function getGalioSettings() {
+export function resetGalioSettingsCache() {
+  settingsCache = null;
+  settingsCacheTime = 0;
+}
+
+async function getGalioSettings(): Promise<GalioRuntimeConfig> {
   const now = Date.now();
   if (settingsCache && now - settingsCacheTime < 5 * 60 * 1000) {
     return settingsCache;
   }
 
-  // Try database first
   const settings = await Settings.findOne().select('payments.galio');
-  
-  // Fallback to .env if not in database
+
   const apiKey = settings?.payments?.galio?.apiKey || process.env.GALIO_API_KEY;
   const clientId = settings?.payments?.galio?.clientId || process.env.GALIO_CLIENT_ID;
+  const sandbox =
+    typeof settings?.payments?.galio?.sandbox === 'boolean'
+      ? settings.payments.galio.sandbox
+      : process.env.GALIO_SANDBOX === 'true';
 
   if (!apiKey || !clientId) {
     throw new Error('GalioPay not configured');
   }
 
-  settingsCache = { apiKey, clientId };
+  settingsCache = { apiKey, clientId, sandbox };
   settingsCacheTime = now;
   return settingsCache;
+}
+
+export async function getGalioSandbox(): Promise<boolean> {
+  const { sandbox } = await getGalioSettings();
+  return sandbox;
 }
 
 export async function getPayment(paymentId: string): Promise<GalioPayment> {

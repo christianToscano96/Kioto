@@ -22,6 +22,7 @@ const SettingsSchema = new mongoose.Schema({
     galio: {
       apiKey: String,
       clientId: String,
+      sandbox: Boolean,
     },
   },
   email: {

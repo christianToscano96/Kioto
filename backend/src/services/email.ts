@@ -26,13 +26,27 @@ export const resetSettingsCache = () => {
   settingsCacheTime = 0;
 };
 
+interface EmailRuntimeConfig {
+  apiKey: string;
+  fromEmail: string;
+  adminEmail: string;
+}
+
+async function getEmailConfig(): Promise<EmailRuntimeConfig> {
+  const settings = await getSettings();
+  const apiKey = settings?.email?.pass || process.env.EMAIL_PASS || '';
+  const fromEmail = settings?.email?.from || process.env.EMAIL_FROM || 'noreply@kioto.com';
+  const adminEmail = settings?.email?.user || fromEmail;
+
+  return { apiKey, fromEmail, adminEmail };
+}
+
 // Send email via Brevo API REST
 const sendBrevoEmail = async (to: string, subject: string, html: string, senderName?: string) => {
-  const apiKey = process.env.EMAIL_PASS; // Brevo API key
-  const fromEmail = process.env.EMAIL_FROM || 'noreply@kioto.com';
-  
+  const { apiKey, fromEmail } = await getEmailConfig();
+
   if (!apiKey) {
-    throw new Error('Brevo API key not configured (EMAIL_PASS)');
+    throw new Error('Brevo API key not configured');
   }
 
   console.log('[BREVO API] Sending email:', {
@@ -302,7 +316,7 @@ export const sendAdminNotificationEmail = async (
 </body>
 </html>`;
 
-    const adminEmail = process.env.EMAIL_FROM || 'christoscano96@gmail.com';
+    const { adminEmail } = await getEmailConfig();
     await sendBrevoEmail(
       adminEmail,
       `Nuevo Pedido #${orderId.slice(-8).toUpperCase()}`,

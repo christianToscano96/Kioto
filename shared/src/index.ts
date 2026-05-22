@@ -240,6 +240,7 @@ export interface Settings {
     galio?: {
       apiKey?: string;
       clientId?: string;
+      sandbox?: boolean;
     };
   };
   notifications?: {

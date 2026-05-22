@@ -3,6 +3,8 @@ import { authenticate, adminOnly } from '../middleware/auth';
 import Settings from '../models/Settings';
 import User from '../models/User';
 import { verifyToken } from '../utils/jwt';
+import { resetSettingsCache } from '../services/email';
+import { resetGalioSettingsCache } from '../services/galio';
 
 interface Settings {
   store?: {
@@ -23,10 +25,10 @@ interface Settings {
     from?: string;
   };
   payments?: {
-    stripe?: {
-      testMode?: boolean;
-      publishableKey?: string;
-      secretKey?: string;
+    galio?: {
+      apiKey?: string;
+      clientId?: string;
+      sandbox?: boolean;
     };
   };
   notifications?: {
@@ -75,10 +77,10 @@ const defaultSettings: Settings = {
     from: '',
   },
   payments: {
-    stripe: {
-      testMode: true,
-      publishableKey: '',
-      secretKey: '',
+    galio: {
+      apiKey: '',
+      clientId: '',
+      sandbox: true,
     },
   },
   notifications: {
@@ -111,12 +113,6 @@ const toPublicSettings = (settings: any) => ({
   appearance: settings.appearance,
   social: settings.social,
   policies: settings.policies,
-  payments: {
-    stripe: {
-      testMode: settings.payments?.stripe?.testMode,
-      publishableKey: settings.payments?.stripe?.publishableKey,
-    },
-  },
 });
 
 // Get settings. Admins receive full settings; public callers receive a sanitized subset.
@@ -164,6 +160,8 @@ router.put('/', authenticate, adminOnly, async (req, res) => {
       // Update existing
       Object.assign(existingSettings, settings);
       await existingSettings.save();
+      resetSettingsCache();
+      resetGalioSettingsCache();
       res.json(existingSettings.toObject());
     } else {
       // Create new

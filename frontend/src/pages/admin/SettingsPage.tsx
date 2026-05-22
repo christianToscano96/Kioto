@@ -15,6 +15,50 @@ import { showToast } from '@/components/ui/Toast';
 import type { Settings } from '../../../../shared/src';
 import { User, Store, CreditCard, Mail, Bell, Palette, Shield, Share2, FileText } from '@/components/icons';
 
+function SettingsEnvNotice({
+  title,
+  renderVars,
+  adminVars,
+}: {
+  title: string;
+  renderVars: string[];
+  adminVars: string[];
+}) {
+  return (
+    <div className="rounded-lg border border-outline-variant/30 bg-surface-container-low/60 p-4 text-sm">
+      <p className="font-medium text-on-surface">{title}</p>
+      <p className="mt-2 text-on-surface-variant">
+        Podés cargar credenciales desde este panel (se guardan en la base de datos) o dejarlas vacías
+        y usar variables de entorno como respaldo.
+      </p>
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+            Solo en Render / Vercel
+          </p>
+          <ul className="mt-1 space-y-1 text-on-surface-variant">
+            {renderVars.map((item) => (
+              <li key={item}>
+                <code className="rounded bg-surface px-1.5 py-0.5 text-xs">{item}</code>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+            Configurable aquí
+          </p>
+          <ul className="mt-1 list-disc pl-5 text-on-surface-variant">
+            {adminVars.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const SETTINGS_SECTIONS = [
   { id: 'profile', label: 'Perfil', icon: User },
   { id: 'store', label: 'Tienda', icon: Store },
@@ -42,10 +86,10 @@ const DEFAULT_SETTINGS: Settings = {
     },
   },
   payments: {
-    stripe: {
-      testMode: true,
-      publishableKey: '',
-      secretKey: '',
+    galio: {
+      apiKey: '',
+      clientId: '',
+      sandbox: true,
     },
   },
   email: {
@@ -122,9 +166,15 @@ export function SettingsPage() {
   const handleSave = async () => {
     if (!localSettings) return;
     setSaving(true);
-    await updateSettings(localSettings);
-    setHasChanges(false);
-    setSaving(false);
+    try {
+      await updateSettings(localSettings);
+      setHasChanges(false);
+      showToast({ type: 'success', title: 'Configuración guardada' });
+    } catch {
+      showToast({ type: 'error', title: 'Error al guardar la configuración' });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleProfileSave = async () => {
@@ -336,24 +386,35 @@ export function SettingsPage() {
 
           {activeSection === 'payments' && (
             <>
-              <SettingsCard title="Stripe" description="Configuración de pagos con Stripe">
+              <SettingsEnvNotice
+                title="Integraciones de pago"
+                renderVars={['PUBLIC_API_URL', 'FRONTEND_URL']}
+                adminVars={['API Key de GalioPay', 'Client ID', 'Modo sandbox']}
+              />
+
+              <SettingsCard title="GalioPay" description="Credenciales de la pasarela de pagos">
                 <div className="space-y-4">
                   <ToggleSwitch
-                    label="Modo Test"
-                    checked={localSettings.payments?.stripe?.testMode || false}
-                    onChange={(checked) => updateField('payments.stripe.testMode', checked)}
+                    label="Modo sandbox (pruebas)"
+                    checked={localSettings.payments?.galio?.sandbox ?? true}
+                    onChange={(checked) => updateField('payments.galio.sandbox', checked)}
                   />
                   <ApiKeyInput
-                    label="Publishable Key"
-                    value={localSettings.payments?.stripe?.publishableKey || ''}
-                    onChange={(value) => updateField('payments.stripe.publishableKey', value)}
-                  />
-                  <ApiKeyInput
-                    label="Secret Key"
-                    value={localSettings.payments?.stripe?.secretKey || ''}
-                    onChange={(value) => updateField('payments.stripe.secretKey', value)}
+                    label="API Key"
+                    value={localSettings.payments?.galio?.apiKey || ''}
+                    onChange={(value) => updateField('payments.galio.apiKey', value)}
                     secret
                   />
+                  <ApiKeyInput
+                    label="Client ID"
+                    value={localSettings.payments?.galio?.clientId || ''}
+                    onChange={(value) => updateField('payments.galio.clientId', value)}
+                  />
+                  <p className="text-xs text-on-surface-variant">
+                    Si dejás estos campos vacíos, el backend usará{' '}
+                    <code className="rounded bg-surface px-1 py-0.5">GALIO_API_KEY</code> y{' '}
+                    <code className="rounded bg-surface px-1 py-0.5">GALIO_CLIENT_ID</code> de Render.
+                  </p>
                 </div>
               </SettingsCard>
             </>
@@ -361,27 +422,39 @@ export function SettingsPage() {
 
           {activeSection === 'email' && (
             <>
-              <SettingsCard title="Email SMTP" description="Configuración para envío de emails">
+              <SettingsEnvNotice
+                title="Correo transaccional"
+                renderVars={['MONGODB_URI', 'JWT_SECRET']}
+                adminVars={['API Key de Brevo', 'Email remitente', 'Email del administrador']}
+              />
+
+              <SettingsCard title="Brevo (Sendinblue)" description="Envío de confirmaciones y alertas">
                 <div className="space-y-4">
-                  <Input
-                    label="Email de Gmail"
-                    placeholder="tu-email@gmail.com"
-                    value={localSettings.email?.user || ''}
-                    onChange={(e) => updateField('email.user', e.target.value)}
-                  />
-                  <Input
-                    label="App Password"
-                    type="password"
-                    placeholder="Contraseña de aplicación de Gmail"
+                  <ApiKeyInput
+                    label="API Key de Brevo"
                     value={localSettings.email?.pass || ''}
-                    onChange={(e) => updateField('email.pass', e.target.value)}
+                    onChange={(value) => updateField('email.pass', value)}
+                    secret
                   />
                   <Input
-                    label="Email Remitente"
-                    placeholder="orders@kioto.com"
+                    label="Email remitente"
+                    type="email"
+                    placeholder="noreply@tudominio.com"
                     value={localSettings.email?.from || ''}
                     onChange={(e) => updateField('email.from', e.target.value)}
                   />
+                  <Input
+                    label="Email del administrador"
+                    type="email"
+                    placeholder="admin@tudominio.com"
+                    value={localSettings.email?.user || ''}
+                    onChange={(e) => updateField('email.user', e.target.value)}
+                  />
+                  <p className="text-xs text-on-surface-variant">
+                    Respaldo por entorno:{' '}
+                    <code className="rounded bg-surface px-1 py-0.5">EMAIL_PASS</code> (API key) y{' '}
+                    <code className="rounded bg-surface px-1 py-0.5">EMAIL_FROM</code>.
+                  </p>
                 </div>
               </SettingsCard>
             </>
