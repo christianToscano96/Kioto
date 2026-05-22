@@ -26,6 +26,7 @@ const STATUS_LABELS: Record<Order['status'], string> = {
 };
 
 const ITEMS_PER_PAGE = 10;
+const PAID_REVENUE_STATUSES: Order['status'][] = ['paid', 'processing', 'shipped', 'delivered'];
 
 function getStatusBadgeVariant(status: Order['status']): 'default' | 'secondary' | 'success' | 'warning' | 'destructive' | 'outline' {
   switch (status) {
@@ -68,6 +69,18 @@ export function OrdersList() {
     }, 30000);
     return () => clearInterval(interval);
   }, [fetchOrders]);
+
+  const orderMetrics = useMemo(() => {
+    const allOrders = orders ?? [];
+    return {
+      pendingPayment: allOrders.filter((order) => order.status === 'pending').length,
+      awaitingShipment: allOrders.filter((order) => order.status === 'paid').length,
+      totalRevenue: allOrders
+        .filter((order) => PAID_REVENUE_STATUSES.includes(order.status))
+        .reduce((sum, order) => sum + order.total, 0),
+      cancelled: allOrders.filter((order) => order.status === 'cancelled').length,
+    };
+  }, [orders]);
 
   const filteredOrders = useMemo(() => {
     if (!orders) return [];
@@ -142,13 +155,13 @@ export function OrdersList() {
       <PageHeader title="Pedidos" description="Gestionar y seguir los pedidos de clientes" eyebrow="Panel de Administración" />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard label="Procesando" value={orders?.filter(o => o.status === 'pending').length || 0}
+        <MetricCard label="Pendientes de pago" value={orderMetrics.pendingPayment}
           icon={<ClipboardList size={48} className="text-primary/10" />} />
-        <MetricCard label="En Espera de Envío" value={orders?.filter(o => o.status === 'paid').length || 0}
+        <MetricCard label="En Espera de Envío" value={orderMetrics.awaitingShipment}
           icon={<Truck size={48} className="text-verde-bosque-600/10" />} />
-        <MetricCard label="Ingresos Totales" value={`$${orders?.reduce((sum, o) => sum + o.total, 0).toFixed(2) || '0.00'}`}
+        <MetricCard label="Ingresos confirmados" value={`$${orderMetrics.totalRevenue.toFixed(2)}`}
           icon={<DollarSign size={48} className="text-primary/10" />} />
-        <MetricCard label="Devoluciones" value={orders?.filter(o => o.status === 'cancelled').length || 0}
+        <MetricCard label="Devoluciones" value={orderMetrics.cancelled}
           icon={<RefreshCw size={48} className="text-terracota-600/10" />} />
       </div>
 

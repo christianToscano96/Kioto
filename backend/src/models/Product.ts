@@ -1,24 +1,71 @@
 import mongoose, { Document, Model } from 'mongoose';
 
-// Interface for Product document
+export type InventoryMode = 'unit' | 'color' | 'size_color';
+
+export interface ColorStockLine {
+  color: string;
+  label?: string;
+  stock: number;
+}
+
+export interface SizeVariant {
+  size: string;
+  colors: ColorStockLine[];
+}
+
 export interface IProduct extends Document {
   name: string;
   slug: string;
   price: number;
   images: string[];
   description: string;
-  stock: number;
+  inventoryMode: InventoryMode;
+  stock?: number;
+  colors?: ColorStockLine[];
+  sizeVariants?: SizeVariant[];
   published: boolean;
   materials?: string;
-  sizes?: string[];
-  colors?: string[];
   category?: mongoose.Types.ObjectId;
-  variants?: { size: string; colorStock: { name: string; stock: number }[]; stock: number }[]; // Size + color variants
   createdAt: Date;
   updatedAt: Date;
 }
 
-// Schema definition
+const colorStockLineSchema = new mongoose.Schema<ColorStockLine>(
+  {
+    color: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    label: {
+      type: String,
+      trim: true,
+    },
+    stock: {
+      type: Number,
+      required: true,
+      min: [0, 'Stock must be non-negative'],
+      default: 0,
+    },
+  },
+  { _id: true },
+);
+
+const sizeVariantSchema = new mongoose.Schema<SizeVariant>(
+  {
+    size: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    colors: {
+      type: [colorStockLineSchema],
+      default: [],
+    },
+  },
+  { _id: true },
+);
+
 const productSchema = new mongoose.Schema<IProduct>(
   {
     name: {
@@ -49,11 +96,24 @@ const productSchema = new mongoose.Schema<IProduct>(
       required: [true, 'Description is required'],
       trim: true,
     },
+    inventoryMode: {
+      type: String,
+      enum: ['unit', 'color', 'size_color'],
+      required: true,
+      default: 'unit',
+    },
     stock: {
       type: Number,
-      required: false,
       min: [0, 'Stock must be non-negative'],
       default: 0,
+    },
+    colors: {
+      type: [colorStockLineSchema],
+      default: undefined,
+    },
+    sizeVariants: {
+      type: [sizeVariantSchema],
+      default: undefined,
     },
     published: {
       type: Boolean,
@@ -63,66 +123,23 @@ const productSchema = new mongoose.Schema<IProduct>(
       type: String,
       trim: true,
     },
-    sizes: [
-      {
-        type: String,
-        trim: true,
-      },
-    ],
-    colors: [
-      {
-        type: String,
-        trim: true,
-      },
-    ],
     category: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Category',
     },
-    variants: [
-      {
-        size: {
-          type: String,
-          required: true,
-          trim: true,
-        },
-        colorStock: [
-          {
-            name: {
-              type: String,
-              required: true,
-              trim: true,
-            },
-            stock: {
-              type: Number,
-              required: true,
-              min: [0, 'Stock must be non-negative'],
-              default: 0,
-            },
-          },
-        ],
-        stock: {
-          type: Number,
-          required: true,
-          min: [0, 'Stock must be non-negative'],
-          default: 0,
-        },
-      },
-    ],
   },
   {
     timestamps: true,
-  }
+  },
 );
 
-// Indexes for public catalog queries and admin filtering
 productSchema.index({ name: 'text', description: 'text' });
 productSchema.index({ published: 1, createdAt: -1 });
 productSchema.index({ published: 1, slug: 1 });
 productSchema.index({ category: 1, published: 1 });
+productSchema.index({ inventoryMode: 1, published: 1 });
 
-// Auto-generate slug and keep variant aggregate stock in sync before save
-productSchema.pre<IProduct>('validate', function (next) {
+productSchema.pre<IProduct>('validate', function validateInventory(next) {
   if (this.isModified('name') || !this.slug) {
     this.slug = this.name
       .toLowerCase()
@@ -130,43 +147,48 @@ productSchema.pre<IProduct>('validate', function (next) {
       .replace(/^-+|-+$/g, '');
   }
 
-  if (this.variants && this.variants.length > 0) {
-    let totalStock = 0;
-    this.variants.forEach((variant: any) => {
-      const variantStock = (variant.colorStock || []).reduce(
-        (sum: number, color: any) => sum + (color.stock || 0),
-        0,
-      );
-      variant.stock = variantStock;
-      totalStock += variantStock;
-    });
-    this.stock = totalStock;
+  if (this.inventoryMode === 'unit') {
+    this.colors = undefined;
+    this.sizeVariants = undefined;
+    this.stock = this.stock ?? 0;
+  }
+
+  if (this.inventoryMode === 'color') {
+    this.stock = undefined;
+    this.sizeVariants = undefined;
+  }
+
+  if (this.inventoryMode === 'size_color') {
+    this.stock = undefined;
+    this.colors = undefined;
   }
 
   next();
 });
 
-// Virtual for total stock (sum of colorStock across all variants or base stock)
-productSchema.virtual('totalStock').get(function () {
-  if (this.variants && this.variants.length > 0) {
-    return this.variants.reduce((sum: number, v: any) => {
-      const colorSum = (v.colorStock || []).reduce((cs: number, c: any) => cs + (c.stock || 0), 0);
-      return sum + colorSum;
-    }, 0);
+productSchema.virtual('totalStock').get(function getTotalStock() {
+  if (this.inventoryMode === 'unit') {
+    return this.stock || 0;
   }
-  return this.stock || 0;
+
+  if (this.inventoryMode === 'color') {
+    return (this.colors || []).reduce((sum, line) => sum + (line.stock || 0), 0);
+  }
+
+  return (this.sizeVariants || []).reduce(
+    (sum, sizeVariant) =>
+      sum + (sizeVariant.colors || []).reduce((colorSum, line) => colorSum + (line.stock || 0), 0),
+    0,
+  );
 });
 
-// Virtual for image URLs (not persisted)
-productSchema.virtual('imageUrls').get(function () {
+productSchema.virtual('imageUrls').get(function getImageUrls() {
   return this.images || [];
 });
 
-// Ensure virtuals are included in JSON output
 productSchema.set('toJSON', { virtuals: true });
 productSchema.set('toObject', { virtuals: true });
 
-// Export model
 const Product: Model<IProduct> = mongoose.model<IProduct>('Product', productSchema);
 
 export default Product;

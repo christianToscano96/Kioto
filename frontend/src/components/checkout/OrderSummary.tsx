@@ -1,4 +1,5 @@
 import type { CartItem } from '../../../../shared/src/index';
+import { formatShippingQuote, type DeliveryMethod, type ShippingQuote } from '@shared/index';
 
 interface OrderItemProps {
   item: CartItem;
@@ -25,10 +26,18 @@ export function OrderItem({ item }: OrderItemProps) {
       <div className="flex-1">
         <p className="font-serif text-lg mb-1">{product?.name || 'Producto'}</p>
         {item.size && (
-          <p className="font-label text-xs uppercase tracking-widest text-on-surface/60 mb-4">
+          <p className="font-label text-xs uppercase tracking-widest text-on-surface/60 mb-1">
             Talla: {item.size}
           </p>
         )}
+        {item.color && (
+          <p className="font-label text-xs uppercase tracking-widest text-on-surface/60 mb-1">
+            Color: {item.color}
+          </p>
+        )}
+        <p className="font-label text-xs uppercase tracking-widest text-on-surface/60 mb-4">
+          Cantidad: {item.quantity}
+        </p>
         <p className="font-serif text-lg text-primary">${item.price.toFixed(2)}</p>
       </div>
     </div>
@@ -38,15 +47,22 @@ export function OrderItem({ item }: OrderItemProps) {
 interface OrderSummaryProps {
   items: CartItem[];
   subtotal: number;
-  shipping?: number;
+  shippingQuote?: ShippingQuote;
+  deliveryMethod?: DeliveryMethod;
   total: number;
 }
 
-export function OrderSummary({ items, subtotal, shipping, total }: OrderSummaryProps) {
-  const shippingLabel = shipping !== undefined 
-    ? `$${shipping.toFixed(2)}` 
+export function OrderSummary({
+  items,
+  subtotal,
+  shippingQuote,
+  deliveryMethod,
+  total,
+}: OrderSummaryProps) {
+  const shippingDisplay = shippingQuote
+    ? formatShippingQuote(shippingQuote)
     : 'Calculado en el siguiente paso';
-    
+
   return (
     <aside className="lg:col-span-5 sticky top-32 animate-fade-in" style={{ animationDelay: '200ms' }}>
       <div className="bg-surface-container p-8 lg:p-10 border-l border-outline-variant/40">
@@ -71,8 +87,14 @@ export function OrderSummary({ items, subtotal, shipping, total }: OrderSummaryP
           </div>
           <div className="flex justify-between font-label text-sm uppercase tracking-widest">
             <span className="text-on-surface/60">Envío</span>
-            <span>{shippingLabel}</span>
+            <span>{shippingDisplay}</span>
           </div>
+          {shippingQuote?.label && (
+            <p className="text-xs text-on-surface-variant">{shippingQuote.label}</p>
+          )}
+          {deliveryMethod === 'pickup' && (
+            <p className="text-xs text-primary">Retiro en punto de entrega</p>
+          )}
           <div className="flex justify-between font-serif text-xl pt-4">
             <span>Total</span>
             <span className="text-primary">${total.toFixed(2)}</span>

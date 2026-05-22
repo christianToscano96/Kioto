@@ -1,4 +1,10 @@
-import type { ProductVariant } from "@shared/index";
+import type { Product } from '@shared/index';
+import {
+  getAvailableColors,
+  getColorStockMap,
+  getInventoryMode,
+  resolveInventory,
+} from '@shared/index';
 
 export interface QuickAddSelection {
   selectedSize: string;
@@ -6,53 +12,52 @@ export interface QuickAddSelection {
   quantity: number;
 }
 
-export function getActiveVariants(variants: ProductVariant[]): ProductVariant[] {
-  return variants.filter((variant) => (variant.colorStock || []).length > 0);
+export function getAvailableSizes(product: Pick<Product, 'inventoryMode' | 'sizeVariants'>): string[] {
+  if (getInventoryMode(product) !== 'size_color') return [];
+  return (product.sizeVariants ?? []).map((variant) => variant.size);
 }
 
-export function getColorStockMap(
-  variants: ProductVariant[],
-  size: string,
-): Record<string, number> {
-  const variant = variants.find((item) => item.size === size);
-  if (!variant) return {};
-
-  return (variant.colorStock || []).reduce<Record<string, number>>((acc, color) => {
-    acc[color.name] = color.stock || 0;
-    return acc;
-  }, {});
-}
-
-export function getAvailableColors(
-  variants: ProductVariant[],
-  selectedSize: string,
-): string[] {
-  return selectedSize ? Object.keys(getColorStockMap(variants, selectedSize)) : [];
+export function getActiveSizes(product: Pick<Product, 'inventoryMode' | 'sizeVariants'>): string[] {
+  return getAvailableSizes(product).filter((size) => {
+    const colors = getAvailableColors(product, size);
+    return colors.length > 0;
+  });
 }
 
 export function getMaxStock(
-  variants: ProductVariant[],
-  selection: Pick<QuickAddSelection, "selectedSize" | "selectedColor">,
+  product: Pick<Product, 'inventoryMode' | 'stock' | 'colors' | 'sizeVariants'>,
+  selection: Pick<QuickAddSelection, 'selectedSize' | 'selectedColor'>,
 ): number {
-  if (!selection.selectedSize) return 0;
-
-  const colorStockMap = getColorStockMap(variants, selection.selectedSize);
-  if (selection.selectedColor) return colorStockMap[selection.selectedColor] ?? 0;
-
-  return Object.values(colorStockMap).reduce((total, stock) => total + stock, 0);
+  try {
+    return resolveInventory(product, {
+      size: selection.selectedSize || undefined,
+      color: selection.selectedColor || undefined,
+    }).availableStock;
+  } catch {
+    return 0;
+  }
 }
 
 export function getQuickAddError(
-  variants: ProductVariant[],
+  product: Pick<Product, 'inventoryMode' | 'stock' | 'colors' | 'sizeVariants'>,
   selection: QuickAddSelection,
 ): string | null {
-  const availableColors = getAvailableColors(variants, selection.selectedSize);
-  const maxStock = getMaxStock(variants, selection);
+  const mode = getInventoryMode(product);
 
-  if (!selection.selectedSize) return "Seleccioná una talla";
-  if (availableColors.length > 1 && !selection.selectedColor) return "Seleccioná un color";
-  if (maxStock === 0) return "Sin stock disponible";
-  if (selection.quantity > maxStock) return "Stock insuficiente";
+  if (mode === 'size_color' && !selection.selectedSize) {
+    return 'Seleccioná una talla';
+  }
+
+  const availableColors = getAvailableColors(product, selection.selectedSize || undefined);
+  if ((mode === 'color' || mode === 'size_color') && availableColors.length > 1 && !selection.selectedColor) {
+    return 'Seleccioná un color';
+  }
+
+  const maxStock = getMaxStock(product, selection);
+  if (maxStock === 0) return 'Sin stock disponible';
+  if (selection.quantity > maxStock) return 'Stock insuficiente';
 
   return null;
 }
+
+export { getAvailableColors, getColorStockMap };

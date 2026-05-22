@@ -89,8 +89,9 @@ export async function refundPayment(
 }
 
 export async function verifyPaymentStatus(order: any): Promise<string> {
-  // If order has a galio paymentId, verify it
-  if (!order.galioPaymentId) return order.status;
+  if (!order.galioPaymentId || order.galioPaymentId.startsWith('http')) {
+    return order.status;
+  }
 
   try {
     const payment = await getPayment(order.galioPaymentId);

@@ -1,5 +1,6 @@
 import { memo } from "react";
 import { ShoppingBag, Eye } from '@/components/icons';
+import { usePrefetchProductDetail } from '@/hooks/usePrefetchProductDetail';
 import type { Product } from "../../../../shared/src";
 
 interface ProductCardListProps {
@@ -21,8 +22,13 @@ export function ProductCardList({
   hasSizes,
   onAddToCart,
 }: ProductCardListProps) {
+  const { prefetchProps } = usePrefetchProductDetail(product._id);
+
   return (
-    <div className="group bg-surface-container-low rounded-xl overflow-hidden border border-outline-variant/30 hover:shadow-xl hover:border-outline-variant/60 transition-all duration-300">
+    <div
+      className="group bg-surface-container-low rounded-xl overflow-hidden border border-outline-variant/30 hover:shadow-xl hover:border-outline-variant/60 transition-all duration-300"
+      {...prefetchProps}
+    >
       <div className="flex flex-col sm:flex-row">
         {/* Image */}
         <div
@@ -109,16 +115,16 @@ export function ProductCardList({
             </p>
 
             {/* Specs compactos */}
-            {(product.materials || (product.sizes?.length ?? 0) > 0) && (
+            {(product.materials || availableSizes.length > 0) && (
               <div className="flex flex-wrap gap-2 mb-4">
                 {product.materials && (
                   <span className="bg-surface-container text-on-surface-variant text-xs px-2.5 py-1 rounded-full border border-outline-variant/30">
                     {product.materials}
                   </span>
                 )}
-                {(product.sizes?.length ?? 0) > 0 && (
+                {availableSizes.length > 0 && (
                   <span className="bg-surface-container text-on-surface-variant text-xs px-2.5 py-1 rounded-full border border-outline-variant/30">
-                    {product.sizes?.join(', ')}
+                    {availableSizes.join(', ')}
                   </span>
                 )}
               </div>

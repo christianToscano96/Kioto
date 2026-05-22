@@ -45,8 +45,8 @@ export const addToCart = async (
   // Check if item already exists in cart (same product + same size + same color)
   const existingItemIndex = cart.items.findIndex(
     item => item.productId.toString() === productId.toString() && 
-    (item as any).size === (resolvedStock.size ?? "") &&
-    (item as any).color === (resolvedStock.color ?? "")
+    (item as any).size === (resolvedStock.resolvedSize ?? "") &&
+    (item as any).color === (resolvedStock.resolvedColor ?? "")
   );
 
   if (existingItemIndex >= 0) {
@@ -61,8 +61,8 @@ export const addToCart = async (
       productId,
       quantity,
       price: product.price,
-      size: resolvedStock.size ?? "",
-      color: resolvedStock.color ?? "",
+      size: resolvedStock.resolvedSize ?? "",
+      color: resolvedStock.resolvedColor ?? "",
     } as any);
   }
   
@@ -175,28 +175,6 @@ export const getCartItemCount = (items: ICartItem[]): number => {
 };
 
 /**
- * Calculate shipping cost based on postal code
- * Y4512 = Local shipping (same as store location)
+ * Calculate shipping cost based on postal code and delivery method.
  */
-export const calculateShipping = (postalCode: string): number => {
-  // Local shipping (same postal code as store)
-  if (postalCode === 'Y4512') {
-    return 0; // Envío a domicilio gratuito
-  }
-  
-  // Default shipping rates
-  const numericCode = parseInt(postalCode.replace(/\D/g, ''), 10);
-  
-  if (isNaN(numericCode)) {
-    return 15; // Default rate for invalid codes
-  }
-  
-  // Zone-based shipping rates
-  if (numericCode >= 1000 && numericCode <= 2000) {
-    return 5; // Capital
-  } else if (numericCode >= 3000 && numericCode <= 5000) {
-    return 10; // Provincia
-  } else {
-    return 15; // Interior
-  }
-};
+export { calculateShipping } from './shipping';
