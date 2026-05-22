@@ -41,6 +41,86 @@ async function getEmailConfig(): Promise<EmailRuntimeConfig> {
   return { apiKey, fromEmail, adminEmail };
 }
 
+export interface BrevoConnectionOverrides {
+  apiKey?: string;
+  fromEmail?: string;
+  adminEmail?: string;
+}
+
+export async function testBrevoConnection(
+  overrides?: BrevoConnectionOverrides,
+): Promise<{ ok: true; message: string }> {
+  const settings = await getSettings();
+  const apiKey =
+    overrides?.apiKey?.trim() ||
+    settings?.email?.pass ||
+    process.env.EMAIL_PASS ||
+    '';
+  const fromEmail =
+    overrides?.fromEmail?.trim() ||
+    settings?.email?.from ||
+    process.env.EMAIL_FROM ||
+    '';
+  const adminEmail =
+    overrides?.adminEmail?.trim() ||
+    settings?.email?.user ||
+    fromEmail;
+
+  if (!apiKey) {
+    throw new Error('Falta la API Key de Brevo');
+  }
+  if (!fromEmail) {
+    throw new Error('Falta el email remitente');
+  }
+  if (!adminEmail) {
+    throw new Error('Falta el email del administrador');
+  }
+
+  const accountResponse = await fetch('https://api.brevo.com/v3/account', {
+    headers: {
+      accept: 'application/json',
+      'api-key': apiKey,
+    },
+  });
+
+  if (accountResponse.status === 401 || accountResponse.status === 403) {
+    throw new Error('API Key de Brevo inválida');
+  }
+
+  if (!accountResponse.ok) {
+    throw new Error(`Brevo respondió con error (${accountResponse.status})`);
+  }
+
+  const testResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'api-key': apiKey,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      sender: {
+        name: 'KIOTO INDU',
+        email: fromEmail,
+      },
+      to: [{ email: adminEmail }],
+      subject: 'Prueba de conexión — KIOTO',
+      htmlContent:
+        '<p>Si recibís este email, la configuración de Brevo funciona correctamente.</p>',
+    }),
+  });
+
+  if (!testResponse.ok) {
+    const errorText = await testResponse.text();
+    throw new Error(`No se pudo enviar el email de prueba: ${errorText.slice(0, 200)}`);
+  }
+
+  return {
+    ok: true,
+    message: `Email de prueba enviado a ${adminEmail}`,
+  };
+}
+
 // Send email via Brevo API REST
 const sendBrevoEmail = async (to: string, subject: string, html: string, senderName?: string) => {
   const { apiKey, fromEmail } = await getEmailConfig();

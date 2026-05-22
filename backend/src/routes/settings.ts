@@ -3,8 +3,8 @@ import { authenticate, adminOnly } from '../middleware/auth';
 import Settings from '../models/Settings';
 import User from '../models/User';
 import { verifyToken } from '../utils/jwt';
-import { resetSettingsCache } from '../services/email';
-import { resetGalioSettingsCache } from '../services/galio';
+import { resetSettingsCache, testBrevoConnection } from '../services/email';
+import { resetGalioSettingsCache, testGalioConnection } from '../services/galio';
 
 interface Settings {
   store?: {
@@ -171,6 +171,32 @@ router.put('/', authenticate, adminOnly, async (req, res) => {
   } catch (error) {
     console.error('Error updating settings:', error);
     res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
+router.post('/test/galio', authenticate, adminOnly, async (req, res) => {
+  try {
+    const { apiKey, clientId, sandbox } = req.body ?? {};
+    const result = await testGalioConnection({ apiKey, clientId, sandbox });
+    res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al probar GalioPay';
+    res.status(400).json({ ok: false, error: message });
+  }
+});
+
+router.post('/test/email', authenticate, adminOnly, async (req, res) => {
+  try {
+    const { pass, from, user } = req.body ?? {};
+    const result = await testBrevoConnection({
+      apiKey: pass,
+      fromEmail: from,
+      adminEmail: user,
+    });
+    res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al probar Brevo';
+    res.status(400).json({ ok: false, error: message });
   }
 });
 

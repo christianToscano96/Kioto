@@ -10,10 +10,10 @@ import { ApiKeyInput } from '@/components/ui/ApiKeyInput';
 import { ImageUpload } from '@/components/ui/ImageUpload';
 import { useSettingsStore } from '@/store/settings';
 import { useAuthStore } from '@/store/auth';
-import { profileApi } from '@/lib/api';
+import { profileApi, settingsApi } from '@/lib/api';
 import { showToast } from '@/components/ui/Toast';
 import type { Settings } from '../../../../shared/src';
-import { User, Store, CreditCard, Mail, Bell, Palette, Shield, Share2, FileText } from '@/components/icons';
+import { User, Store, CreditCard, Mail, Bell, Palette, Shield, Share2, FileText, Loader2 } from '@/components/icons';
 
 function SettingsEnvNotice({
   title,
@@ -127,6 +127,8 @@ export function SettingsPage() {
   const [activeSection, setActiveSection] = useState('profile');
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [testingGalio, setTestingGalio] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
   const [localSettings, setLocalSettings] = useState<Settings | null>(null);
   const [passwordData, setPasswordData] = useState({
     current: '',
@@ -209,6 +211,60 @@ export function SettingsPage() {
       return result;
     });
     setHasChanges(true);
+  };
+
+  const getApiErrorMessage = (error: unknown, fallback: string) => {
+    if (typeof error === 'object' && error !== null && 'response' in error) {
+      const data = (error as { response?: { data?: { error?: string } } }).response?.data;
+      if (data?.error) return data.error;
+    }
+    return fallback;
+  };
+
+  const handleTestGalio = async () => {
+    if (!localSettings) return;
+    setTestingGalio(true);
+    try {
+      const response = await settingsApi.testGalio({
+        apiKey: localSettings.payments?.galio?.apiKey,
+        clientId: localSettings.payments?.galio?.clientId,
+        sandbox: localSettings.payments?.galio?.sandbox,
+      });
+      showToast({
+        type: 'success',
+        title: response.data.message,
+      });
+    } catch (error) {
+      showToast({
+        type: 'error',
+        title: getApiErrorMessage(error, 'No se pudo conectar con GalioPay'),
+      });
+    } finally {
+      setTestingGalio(false);
+    }
+  };
+
+  const handleTestEmail = async () => {
+    if (!localSettings) return;
+    setTestingEmail(true);
+    try {
+      const response = await settingsApi.testEmail({
+        pass: localSettings.email?.pass,
+        from: localSettings.email?.from,
+        user: localSettings.email?.user,
+      });
+      showToast({
+        type: 'success',
+        title: response.data.message,
+      });
+    } catch (error) {
+      showToast({
+        type: 'error',
+        title: getApiErrorMessage(error, 'No se pudo conectar con Brevo'),
+      });
+    } finally {
+      setTestingEmail(false);
+    }
   };
 
   const handleChangePassword = async () => {
@@ -415,6 +471,16 @@ export function SettingsPage() {
                     <code className="rounded bg-surface px-1 py-0.5">GALIO_API_KEY</code> y{' '}
                     <code className="rounded bg-surface px-1 py-0.5">GALIO_CLIENT_ID</code> de Render.
                   </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="inline-flex items-center gap-2"
+                    onClick={handleTestGalio}
+                    disabled={testingGalio}
+                  >
+                    {testingGalio ? <Loader2 size={16} className="animate-spin" /> : null}
+                    {testingGalio ? 'Probando...' : 'Probar conexión'}
+                  </Button>
                 </div>
               </SettingsCard>
             </>
@@ -455,6 +521,16 @@ export function SettingsPage() {
                     <code className="rounded bg-surface px-1 py-0.5">EMAIL_PASS</code> (API key) y{' '}
                     <code className="rounded bg-surface px-1 py-0.5">EMAIL_FROM</code>.
                   </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="inline-flex items-center gap-2"
+                    onClick={handleTestEmail}
+                    disabled={testingEmail}
+                  >
+                    {testingEmail ? <Loader2 size={16} className="animate-spin" /> : null}
+                    {testingEmail ? 'Enviando prueba...' : 'Probar conexión'}
+                  </Button>
                 </div>
               </SettingsCard>
             </>
