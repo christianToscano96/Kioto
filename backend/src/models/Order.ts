@@ -11,9 +11,10 @@ export interface IOrder extends Document {
   total: number;
   status: OrderStatus;
   stripePaymentIntentId?: string;
-    galioPaymentId?: string;
-    paymentUrl?: string;
-    deliveryMethod?: 'shipping' | 'pickup';
+  galioPaymentId?: string;
+  paymentUrl?: string;
+  paymentFailureReason?: 'expired' | 'rejected' | 'failed' | 'cancelled';
+  deliveryMethod?: 'shipping' | 'pickup';
     paymentMethod?: 'transfer' | 'galio';
     shippingDetails?: {
     name: string;
@@ -92,6 +93,10 @@ const orderSchema = new Schema<IOrder>(
     },
     galioPaymentId: {
       type: String,
+    },
+    paymentFailureReason: {
+      type: String,
+      enum: ['expired', 'rejected', 'failed', 'cancelled'],
     },
     paymentUrl: {
       type: String,

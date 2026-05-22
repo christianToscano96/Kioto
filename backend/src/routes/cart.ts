@@ -1,18 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { Types } from 'mongoose';
-import crypto from 'crypto';
 import Cart from '../models/Cart';
 import { validate } from '../middleware/validation';
 import { addToCartSchema, updateCartItemSchema, removeCartItemSchema } from '../schemas/cart';
 import { getOrCreateCart, addToCart, updateCartItem, removeFromCart, clearCart, calculateCartTotal, markCartAsConverted } from '../utils/cart';
 import { authenticate, adminOnly } from '../middleware/auth';
+import { ensureSessionCookie } from '../utils/session';
 
 const router = Router();
-
-// Helper to get session ID from request
-const getSessionId = (req: Request): string => {
-  return req.cookies?.sessionId || (req.headers['x-session-id'] as string) || crypto.randomUUID();
-};
 
 // Transform cart items to match frontend expected structure
 const transformCartItems = (items: any[]) => {
@@ -41,7 +36,7 @@ const transformCartItems = (items: any[]) => {
 // GET /api/cart - Get current cart
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const sessionId = getSessionId(req);
+    const sessionId = ensureSessionCookie(req, res);
     const cart = await getOrCreateCart(sessionId);
 
     // Populate product details for cart items
@@ -68,7 +63,7 @@ router.get('/', async (req: Request, res: Response) => {
 // POST /api/cart/items - Add item to cart
 router.post('/items', validate(addToCartSchema), async (req: Request, res: Response) => {
   try {
-    const sessionId = getSessionId(req);
+    const sessionId = ensureSessionCookie(req, res);
     const { productId, quantity, size, color } = req.body;
     
     const cart = await addToCart(
@@ -78,18 +73,6 @@ router.post('/items', validate(addToCartSchema), async (req: Request, res: Respo
       size,
       color
     );
-
-    // Set session ID cookie if not already set
-    if (!req.cookies?.sessionId) {
-      res.cookie('sessionId', sessionId, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        // Use 'none' for cross-origin in production, 'lax' for development
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-        maxAge: 30 * 24 * 60 * 60 * 1000,
-        path: '/',
-      });
-    }
 
     await cart.populate('items.productId', 'name price images description');
     const items = transformCartItems(cart.items);
@@ -118,7 +101,7 @@ router.post('/items', validate(addToCartSchema), async (req: Request, res: Respo
 // PUT /api/cart/items/:itemId - Update cart item quantity
 router.put('/items/:itemId', validate(updateCartItemSchema), async (req: Request, res: Response) => {
   try {
-    const sessionId = getSessionId(req);
+    const sessionId = ensureSessionCookie(req, res);
     const { itemId } = req.params;
     const { quantity } = req.body;
 
@@ -158,7 +141,7 @@ router.put('/items/:itemId', validate(updateCartItemSchema), async (req: Request
 // DELETE /api/cart/items/:itemId - Remove item from cart
 router.delete('/items/:itemId', validate(removeCartItemSchema), async (req: Request, res: Response) => {
   try {
-    const sessionId = getSessionId(req);
+    const sessionId = ensureSessionCookie(req, res);
     const { itemId } = req.params;
 
     const cart = await removeFromCart(sessionId, new Types.ObjectId(itemId));
@@ -189,7 +172,7 @@ router.delete('/items/:itemId', validate(removeCartItemSchema), async (req: Requ
 // DELETE /api/cart - Clear cart
 router.delete('/', async (req: Request, res: Response) => {
   try {
-    const sessionId = getSessionId(req);
+    const sessionId = ensureSessionCookie(req, res);
     await clearCart(sessionId);
 
     res.status(200).json({ message: 'Cart cleared successfully' });

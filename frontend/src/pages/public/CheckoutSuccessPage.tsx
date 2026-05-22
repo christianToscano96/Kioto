@@ -7,8 +7,9 @@ import { LazyVideo } from '@/components/ui/LazyVideo';
 import { Loader2, ShoppingBag } from '@/components/icons';
 import { PICKUP_POINT } from '@shared/index';
 import { api } from "@/lib/api";
+import { clearStoredPendingOrderId } from "@/hooks/usePendingOrder";
 
-type PaymentStatus = 'confirming' | 'paid' | 'pending';
+type PaymentStatus = 'confirming' | 'paid' | 'pending' | 'failed';
 
 export function CheckoutSuccessPage() {
   const [searchParams] = useSearchParams();
@@ -50,12 +51,14 @@ export function CheckoutSuccessPage() {
         const status = response.data?.status;
 
         if (status === 'paid') {
+          clearStoredPendingOrderId(orderId);
           setPaymentStatus('paid');
           return;
         }
 
         if (status === 'failed') {
-          setPaymentStatus('pending');
+          clearStoredPendingOrderId(orderId);
+          setPaymentStatus('failed');
           return;
         }
       } catch {
@@ -82,6 +85,24 @@ export function CheckoutSuccessPage() {
 
   const isPickup = delivery === 'pickup';
 
+  const title =
+    paymentStatus === 'confirming'
+      ? 'Confirmando tu pago...'
+      : paymentStatus === 'paid'
+        ? '¡Gracias por tu compra!'
+        : paymentStatus === 'failed'
+          ? 'El pago no se completó'
+          : 'Pedido registrado';
+
+  const description =
+    paymentStatus === 'paid'
+      ? 'Tu pago fue confirmado. Estamos preparando tu pedido.'
+      : paymentStatus === 'confirming'
+        ? 'Estamos verificando el pago con GalioPay.'
+        : paymentStatus === 'failed'
+          ? 'El link de pago de GalioPay venció (15 minutos). Podés volver al carrito e intentar de nuevo.'
+          : 'Recibimos tu pedido. Te avisaremos por email cuando se confirme el pago.';
+
   return (
     <>
       <PublicHeader />
@@ -99,11 +120,7 @@ export function CheckoutSuccessPage() {
           </div>
 
           <h1 className="font-serif text-4xl md:text-5xl font-bold text-on-surface mb-4">
-            {paymentStatus === 'confirming'
-              ? 'Confirmando tu pago...'
-              : paymentStatus === 'paid'
-                ? '¡Gracias por tu compra!'
-                : 'Pedido registrado'}
+            {title}
           </h1>
 
           {paymentStatus === 'confirming' && (
@@ -113,11 +130,7 @@ export function CheckoutSuccessPage() {
           )}
 
           <p className="text-on-surface-variant text-lg mb-2">
-            {paymentStatus === 'paid'
-              ? 'Tu pago fue confirmado. Estamos preparando tu pedido.'
-              : paymentStatus === 'confirming'
-                ? 'Estamos verificando el pago con GalioPay.'
-                : 'Recibimos tu pedido. Te avisaremos por email cuando se confirme el pago.'}
+            {description}
           </p>
 
           {orderId && (
@@ -137,13 +150,23 @@ export function CheckoutSuccessPage() {
           )}
 
           <div className="space-y-4">
-            <Link
-              to="/products"
-              className="inline-flex items-center gap-2 bg-primary text-on-primary font-medium px-8 py-3.5 rounded-full hover:bg-primary-hover transition-colors"
-            >
-              <ShoppingBag size={20} />
-              Seguir comprando
-            </Link>
+            {paymentStatus === 'failed' ? (
+              <Link
+                to="/cart"
+                className="inline-flex items-center gap-2 bg-primary text-on-primary font-medium px-8 py-3.5 rounded-full hover:bg-primary-hover transition-colors"
+              >
+                <ShoppingBag size={20} />
+                Volver al carrito
+              </Link>
+            ) : (
+              <Link
+                to="/products"
+                className="inline-flex items-center gap-2 bg-primary text-on-primary font-medium px-8 py-3.5 rounded-full hover:bg-primary-hover transition-colors"
+              >
+                <ShoppingBag size={20} />
+                Seguir comprando
+              </Link>
+            )}
 
             <div>
               <Link

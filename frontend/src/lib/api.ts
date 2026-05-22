@@ -9,11 +9,31 @@ export const getApiOrigin = () => {
 
 const getBaseUrl = getApiOrigin;
 
+function getStoredSessionId(): string | null {
+  try {
+    const raw = localStorage.getItem('cart-storage');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { state?: { sessionId?: string | null } };
+    const sessionId = parsed.state?.sessionId;
+    return typeof sessionId === 'string' && sessionId.length > 0 ? sessionId : null;
+  } catch {
+    return null;
+  }
+}
+
 // Create axios instance with credentials
 export const api = axios.create({
   baseURL: import.meta.env?.VITE_API_URL ?? 'http://localhost:4000/api',
   withCredentials: true,
   timeout: 15000,
+});
+
+api.interceptors.request.use((config) => {
+  const sessionId = getStoredSessionId();
+  if (sessionId) {
+    config.headers.set('x-session-id', sessionId);
+  }
+  return config;
 });
 
 // Add response interceptor for auth errors - only redirect for protected routes
@@ -151,9 +171,50 @@ export const cartApi = {
 };
 
 // Checkout API
+export type PendingOrderInfo = {
+  orderId: string;
+  total: number;
+  subtotal: number;
+  shipping: number;
+  paymentUrl?: string;
+  deliveryMethod?: 'shipping' | 'pickup';
+  expiresAt: string;
+  ttlMinutes: number;
+  minutesRemaining: number;
+  secondsRemaining: number;
+  matchesCart: boolean;
+};
+
+export type CheckoutOrderStatus = {
+  orderId: string;
+  status: string;
+  reason?: 'expired' | 'rejected' | 'failed' | 'cancelled';
+  deliveryMethod?: 'shipping' | 'pickup';
+  total: number;
+  paymentUrl?: string;
+  expiresAt?: string;
+  secondsRemaining?: number;
+  canResume?: boolean;
+};
+
 export const checkoutApi = {
-  createSession: (data: { items: CartItem[] }) =>
-    api.post<{ url: string }>('/checkout', data),
+  createSession: (data: Record<string, unknown>) =>
+    api.post<{ paymentUrl: string; orderId: string }>('/checkout', data),
+
+  getPendingOrder: () =>
+    api
+      .get<{ pending: PendingOrderInfo | null }>('/checkout/pending-order')
+      .then((res) => res.data.pending),
+
+  resumePayment: (orderId: string) =>
+    api
+      .post<{ paymentUrl: string; status: string; orderId: string }>(
+        `/checkout/order/${orderId}/resume-payment`,
+      )
+      .then((res) => res.data),
+
+  getOrderStatus: (orderId: string) =>
+    api.get<CheckoutOrderStatus>(`/checkout/order/${orderId}/status`).then((res) => res.data),
 };
 
 export const ordersApi = {

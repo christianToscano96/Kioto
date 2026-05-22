@@ -15,6 +15,7 @@ import { CartItemCard } from "@/components/ui/CartItemCard";
 import { Footer } from "@/components/layout/Footer";
 import { showToast } from "@/components/ui/Toast";
 import { ShippingEstimate } from "@/components/checkout/ShippingEstimate";
+import { PendingPaymentBanner } from "@/components/checkout/PendingPaymentBanner";
 
 export function CartPage() {
   const items = useCartItems();
@@ -117,6 +118,8 @@ export function CartPage() {
             </Link>
           </div>
         </header>
+
+        <PendingPaymentBanner className="mb-8" />
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-16">
           <div className="lg:col-span-8 space-y-2">

@@ -180,6 +180,9 @@ const startServer = async () => {
    });
    const { initSocket } = await import('./socket');
    initSocket(io);
+
+   const { startPendingOrderExpiryJob } = await import('./jobs/expirePendingOrders');
+   startPendingOrderExpiryJob();
  };
 
 startServer();

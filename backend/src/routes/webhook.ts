@@ -3,7 +3,12 @@ import mongoose from 'mongoose';
 import Order, { type IOrder } from '../models/Order';
 import { getPayment } from '../services/galio';
 import {
+  getPaymentFailureReason,
   isGalioPaymentApproved,
+  isGalioPaymentFailed,
+  normalizeGalioStatus,
+} from '../utils/galioPaymentStatus';
+import {
   markOrderAsCancelled,
   markOrderAsFailed,
   markOrderAsPaid,
@@ -28,6 +33,12 @@ function buildOrderQuery(referenceId?: string, paymentId?: string) {
 async function processApprovedPayment(order: IOrder, paymentId?: string) {
   const result = await markOrderAsPaid(order, { galioPaymentId: paymentId });
   return { success: true, alreadyProcessed: result.alreadyProcessed };
+}
+
+async function processFailedPayment(order: IOrder, status?: string) {
+  const reason = getPaymentFailureReason(status);
+  await markOrderAsFailed(order, { reason });
+  return { success: true, status: 'failed', reason };
 }
 
 /**
@@ -56,21 +67,24 @@ router.post('/galio', async (req, res) => {
       order.galioPaymentId = paymentId;
     }
 
-    if (isGalioPaymentApproved(status)) {
+    const normalizedStatus = normalizeGalioStatus(status);
+
+    if (isGalioPaymentApproved(normalizedStatus)) {
       const result = await processApprovedPayment(order, paymentId);
       return res.json(result);
     }
 
-    if (status === 'rejected' || status === 'failed' || status === 'cancelled') {
-      await markOrderAsFailed(order);
-      return res.json({ success: true, status: 'failed' });
+    if (isGalioPaymentFailed(normalizedStatus)) {
+      const result = await processFailedPayment(order, normalizedStatus);
+      return res.json(result);
     }
 
     if (paymentId) {
       const payment = await getPayment(paymentId);
+      order.galioPaymentId = payment.id;
 
       if (isGalioPaymentApproved(payment.status)) {
-        const result = await processApprovedPayment(order, paymentId);
+        const result = await processApprovedPayment(order, payment.id);
         return res.json(result);
       }
 
@@ -79,10 +93,14 @@ router.post('/galio', async (req, res) => {
         return res.json({ success: true, status: 'cancelled' });
       }
 
-      if (payment.status === 'rejected' || payment.status === 'failed') {
-        await markOrderAsFailed(order);
-        return res.json({ success: true, status: 'failed' });
+      if (isGalioPaymentFailed(payment.status)) {
+        const result = await processFailedPayment(order, payment.status);
+        return res.json(result);
       }
+    }
+
+    if (paymentId) {
+      await order.save();
     }
 
     res.json({ success: true, status: 'pending' });

@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
-import crypto from 'crypto';
 import Stripe from 'stripe';
 import { validate } from '../middleware/validation';
 import { createCheckoutSchema } from '../schemas/checkout';
 import { getOrCreateCart, calculateCartTotal, markCartAsConverted } from '../utils/cart';
+import { ensureSessionCookie } from '../utils/session';
 import {
   calculateShipping,
   getProvinceByName,
@@ -16,17 +16,23 @@ import Order, { type IOrder } from '../models/Order';
 import { assertStockAvailable, deductStockForItems } from '../utils/stock';
 import { sendOrderConfirmationEmail } from '../services/email';
 import { createPaymentLink, getPayment, getGalioSandbox } from '../services/galio';
-import { isGalioPaymentApproved, markOrderAsPaid } from '../utils/orderPayment';
+import {
+  isGalioPaymentApproved,
+  isGalioPaymentFailed,
+  getPaymentFailureReason,
+} from '../utils/galioPaymentStatus';
+import { markOrderAsFailed, markOrderAsPaid } from '../utils/orderPayment';
+import {
+  getPendingOrderExpiresAt,
+  getPendingOrderTimeLeftMs,
+  getPendingOrderTtlMinutes,
+  isPendingGalioOrderActive,
+} from '../utils/pendingOrderTtl';
 
 const router = Router();
 
 // Initialize Stripe
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
-
-// Helper to get session ID from request
-const getSessionId = (req: Request): string => {
-  return req.cookies?.sessionId || (req.headers['x-session-id'] as string) || crypto.randomUUID();
-};
 
 type CheckoutOrderItem = {
   productId: unknown;
@@ -134,7 +140,7 @@ async function attachGalioPaymentLink(
 // POST /api/checkout - Create checkout session (fake mode - no Stripe)
 router.post('/', validate(createCheckoutSchema), async (req: Request, res: Response) => {
   try {
-    const sessionId = getSessionId(req);
+    const sessionId = ensureSessionCookie(req, res);
     const cart = await getOrCreateCart(sessionId);
 
     // Check if cart has items
@@ -245,7 +251,7 @@ router.post('/', validate(createCheckoutSchema), async (req: Request, res: Respo
 
     res.status(200).json({
       orderId: order._id,
-      sessionId: `fake_session_${order._id}`,
+      sessionId,
       success: true,
       message: isReuse ? 'Pending order reused' : 'Order created successfully',
       reused: isReuse,
@@ -262,22 +268,163 @@ router.post('/', validate(createCheckoutSchema), async (req: Request, res: Respo
   }
 });
 
-// GET /api/checkout/order/:orderId/status - Public status for success page (session-bound)
-router.get('/order/:orderId/status', async (req: Request, res: Response) => {
+async function buildGalioItemsFromOrder(order: IOrder) {
+  await order.populate('items.productId', 'name');
+  const galioItems = order.items.map((item) => ({
+    title: (item.productId as { name?: string })?.name || 'Product',
+    quantity: item.quantity,
+    unitPrice: item.price,
+    currencyId: 'ARS',
+  }));
+
+  if (order.shipping > 0) {
+    galioItems.push({
+      title: 'Envío',
+      quantity: 1,
+      unitPrice: order.shipping,
+      currencyId: 'ARS',
+    });
+  }
+
+  return galioItems;
+}
+
+// GET /api/checkout/pending-order - Active pending Galio order for this session
+router.get('/pending-order', async (req: Request, res: Response) => {
   try {
-    const sessionId = getSessionId(req);
-    const order = await Order.findById(req.params.orderId).select('status sessionId deliveryMethod total');
+    const sessionId = ensureSessionCookie(req, res);
+    const order = await Order.findOne({
+      sessionId,
+      status: 'pending',
+      $or: [{ paymentMethod: 'galio' }, { paymentMethod: { $exists: false } }],
+    })
+      .sort({ createdAt: -1 })
+      .select('items subtotal shipping total paymentUrl createdAt status deliveryMethod');
+
+    if (!order || !isPendingGalioOrderActive(order)) {
+      res.json({ pending: null });
+      return;
+    }
+
+    const cart = await getOrCreateCart(sessionId);
+    await cart.populate('items.productId', 'name images inventoryMode stock colors sizeVariants');
+
+    const cartItems: CheckoutOrderItem[] = cart.items.map((item) => ({
+      productId: (item.productId as { _id?: unknown })._id || item.productId,
+      quantity: item.quantity,
+      price: item.price,
+      size: (item as { size?: string }).size,
+      color: (item as { color?: string }).color,
+    }));
+    const cartSignature = buildCartSignature(cartItems);
+    const orderSignature = buildCartSignature(order.items as CheckoutOrderItem[]);
+    const cartSubtotal = calculateCartTotal(cart.items);
+    const matchesCart =
+      cart.items.length > 0 &&
+      cartSignature === orderSignature &&
+      cartSubtotal + order.shipping === order.total;
+
+    const expiresAt = getPendingOrderExpiresAt(order.createdAt);
+    const timeLeftMs = getPendingOrderTimeLeftMs(order.createdAt);
+
+    res.json({
+      pending: {
+        orderId: order._id,
+        total: order.total,
+        subtotal: order.subtotal,
+        shipping: order.shipping,
+        paymentUrl: order.paymentUrl,
+        deliveryMethod: order.deliveryMethod,
+        expiresAt: expiresAt.toISOString(),
+        ttlMinutes: getPendingOrderTtlMinutes(),
+        minutesRemaining: Math.ceil(timeLeftMs / 60_000),
+        secondsRemaining: Math.ceil(timeLeftMs / 1000),
+        matchesCart,
+      },
+    });
+  } catch (error) {
+    console.error('Pending order error:', error);
+    res.status(500).json({ error: 'Failed to fetch pending order' });
+  }
+});
+
+// POST /api/checkout/order/:orderId/resume-payment - Regenerate Galio link for pending order
+router.post('/order/:orderId/resume-payment', async (req: Request, res: Response) => {
+  try {
+    const sessionId = ensureSessionCookie(req, res);
+    const order = await Order.findById(req.params.orderId);
 
     if (!order || order.sessionId !== sessionId) {
       res.status(404).json({ error: 'Order not found' });
       return;
     }
 
+    if (order.status === 'paid') {
+      res.json({ status: 'paid', paymentUrl: order.paymentUrl });
+      return;
+    }
+
+    if (!isPendingGalioOrderActive(order)) {
+      if (order.status === 'pending') {
+        await markOrderAsFailed(order, { reason: 'expired' });
+      }
+
+      res.status(410).json({
+        error: 'Payment window expired',
+        status: order.status,
+        reason: order.paymentFailureReason ?? 'expired',
+      });
+      return;
+    }
+
+    const galioItems = await buildGalioItemsFromOrder(order);
+    const paymentUrl = await attachGalioPaymentLink(
+      order,
+      galioItems,
+      order.deliveryMethod || 'shipping',
+    );
+
+    res.json({
+      status: 'pending',
+      orderId: order._id,
+      paymentUrl,
+      expiresAt: getPendingOrderExpiresAt(order.createdAt).toISOString(),
+    });
+  } catch (error) {
+    console.error('Resume payment error:', error);
+    res.status(500).json({ error: 'Failed to resume payment' });
+  }
+});
+
+// GET /api/checkout/order/:orderId/status - Public status for success page (session-bound)
+router.get('/order/:orderId/status', async (req: Request, res: Response) => {
+  try {
+    const sessionId = ensureSessionCookie(req, res);
+    const order = await Order.findById(req.params.orderId).select(
+      'status sessionId deliveryMethod total paymentFailureReason paymentUrl paymentMethod createdAt',
+    );
+
+    if (!order || order.sessionId !== sessionId) {
+      res.status(404).json({ error: 'Order not found' });
+      return;
+    }
+
+    const timeLeftMs =
+      order.status === 'pending' && order.paymentMethod === 'galio'
+        ? getPendingOrderTimeLeftMs(order.createdAt)
+        : 0;
+
     res.json({
       orderId: order._id,
       status: order.status,
+      reason: order.paymentFailureReason,
       deliveryMethod: order.deliveryMethod,
       total: order.total,
+      paymentUrl: order.paymentUrl,
+      expiresAt:
+        order.status === 'pending' ? getPendingOrderExpiresAt(order.createdAt).toISOString() : undefined,
+      secondsRemaining: timeLeftMs > 0 ? Math.ceil(timeLeftMs / 1000) : 0,
+      canResume: order.status === 'pending' && timeLeftMs > 0,
     });
   } catch (error) {
     console.error('Order status error:', error);
@@ -288,7 +435,7 @@ router.get('/order/:orderId/status', async (req: Request, res: Response) => {
 // POST /api/checkout/order/:orderId/confirm-payment - Sync payment after Galio redirect
 router.post('/order/:orderId/confirm-payment', async (req: Request, res: Response) => {
   try {
-    const sessionId = getSessionId(req);
+    const sessionId = ensureSessionCookie(req, res);
     const order = await Order.findById(req.params.orderId);
 
     if (!order || order.sessionId !== sessionId) {
@@ -313,9 +460,15 @@ router.post('/order/:orderId/confirm-payment', async (req: Request, res: Respons
         res.json({ status: 'paid', alreadyProcessed: result.alreadyProcessed });
         return;
       }
+
+      if (isGalioPaymentFailed(payment.status)) {
+        await markOrderAsFailed(order, { reason: getPaymentFailureReason(payment.status) });
+        res.json({ status: 'failed', reason: order.paymentFailureReason });
+        return;
+      }
     }
 
-    res.json({ status: order.status });
+    res.json({ status: order.status, reason: order.paymentFailureReason });
   } catch (error) {
     console.error('Confirm payment error:', error);
     res.status(500).json({ error: 'Failed to confirm payment' });

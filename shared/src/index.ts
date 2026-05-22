@@ -139,6 +139,8 @@ export interface OrderItem {
   price: number;
 }
 
+export type PaymentFailureReason = 'expired' | 'rejected' | 'failed' | 'cancelled';
+
 export interface Order {
   _id: string;
   userId?: string;
@@ -150,6 +152,7 @@ export interface Order {
   status: OrderStatus;
   stripePaymentIntentId?: string;
   galioPaymentId?: string;
+  paymentFailureReason?: PaymentFailureReason;
   shippingDetails?: {
     name?: string;
     email?: string;

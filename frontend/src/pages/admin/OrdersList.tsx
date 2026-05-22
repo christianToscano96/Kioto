@@ -1,4 +1,4 @@
-import { Eye, Plus, Grid, X, Minus, Search, User, ClipboardList, Truck, DollarSign, RefreshCw, Loader2 } from '@/components/icons';
+import { Eye, Plus, ClipboardList, Truck, DollarSign, AlertCircle, Loader2 } from '@/components/icons';
 
 import { useState, useMemo, useEffect } from 'react';
 import { Badge } from '@/components/ui/Badge';
@@ -14,6 +14,7 @@ import { ShippingLabelModal } from '@/components/ui/ShippingLabelModal';
 import type { Order } from '../../../../shared/src';
 import { showToast } from '@/components/ui/Toast';
 import { rowsToCsv } from '@/lib/utils';
+import { getOrderStatusLabel } from '@/lib/orderStatus';
 
 const ORDER_STATUS: Order['status'][] = ['pending', 'paid', 'failed', 'processing', 'shipped', 'delivered', 'cancelled'];
 const STATUS_LABELS: Record<Order['status'], string> = {
@@ -79,6 +80,7 @@ export function OrdersList() {
       totalRevenue: allOrders
         .filter((order) => PAID_REVENUE_STATUSES.includes(order.status))
         .reduce((sum, order) => sum + order.total, 0),
+      failedPayments: allOrders.filter((order) => order.status === 'failed').length,
       cancelled: allOrders.filter((order) => order.status === 'cancelled').length,
     };
   }, [orders]);
@@ -176,8 +178,8 @@ export function OrdersList() {
           icon={<Truck size={48} className="text-verde-bosque-600/10" />} />
         <MetricCard label="Ingresos confirmados" value={`$${orderMetrics.totalRevenue.toFixed(2)}`}
           icon={<DollarSign size={48} className="text-primary/10" />} />
-        <MetricCard label="Devoluciones" value={orderMetrics.cancelled}
-          icon={<RefreshCw size={48} className="text-terracota-600/10" />} />
+        <MetricCard label="Pagos no completados" value={orderMetrics.failedPayments}
+          icon={<AlertCircle size={48} className="text-error/20" />} />
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4 border-b pb-4">
@@ -219,7 +221,7 @@ export function OrdersList() {
                 o.shippingDetails?.name || '',
                 o.shippingDetails?.email || '',
                 o.total.toFixed(2),
-                STATUS_LABELS[o.status],
+                getOrderStatusLabel(o.status, o.paymentFailureReason),
                 new Date(o.createdAt).toLocaleDateString('es-ES'),
               ]),
             ]);
@@ -286,9 +288,13 @@ export function OrdersList() {
               return <span>{date.toLocaleDateString('es-ES', { month: 'short', day: 'numeric', year: 'numeric' })}</span>;
             }},
             { key: 'total', label: 'Total', render: (value) => <span className="font-semibold">${(value as number).toFixed(2)}</span> },
-            { key: 'status', label: 'Estado', render: (value) => {
-              const status = value as Order['status'];
-              return <Badge variant={getStatusBadgeVariant(status)} size="md">{STATUS_LABELS[status]}</Badge>;
+            { key: 'status', label: 'Estado', render: (_, row) => {
+              const status = row.status as Order['status'];
+              return (
+                <Badge variant={getStatusBadgeVariant(status)} size="md">
+                  {getOrderStatusLabel(status, row.paymentFailureReason)}
+                </Badge>
+              );
             }},
           ]}
           data={paginatedOrders}

@@ -5,6 +5,7 @@ import {
   useCartItems,
   useCartTotal,
   useCartIsLoading,
+  useCartStore,
 } from "@/store/cart";
 import { PublicHeader } from "@/components/layout/PublicHeader";
 import { Footer } from "@/components/layout/Footer";
@@ -17,6 +18,7 @@ import {
   PrimaryButton,
 } from "@/components/checkout/CheckoutFormComponents";
 import { OrderSummary } from "@/components/checkout/OrderSummary";
+import { PendingPaymentBanner } from "@/components/checkout/PendingPaymentBanner";
 import { api } from "@/lib/api";
 import { showToast } from "@/components/ui/Toast";
 import { BackButton } from '@/components/ui/BackButton';
@@ -96,6 +98,23 @@ export function CheckoutPage() {
   const [showTerms, setShowTerms] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'creating' | 'redirecting'>('idle');
   const provinceLockedByUser = useRef(false);
+
+  useEffect(() => {
+    const resetSubmitState = () => {
+      setSubmitStatus((current) => (current === 'redirecting' ? 'idle' : current));
+    };
+
+    window.addEventListener('pageshow', resetSubmitState);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        resetSubmitState();
+      }
+    });
+
+    return () => {
+      window.removeEventListener('pageshow', resetSubmitState);
+    };
+  }, []);
 
   const isLocal = isLocalPostalCode(formData.address.postal_code);
   const shippingQuote = useMemo(
@@ -204,6 +223,14 @@ export function CheckoutPage() {
 
       showToast({ type: 'success', title: 'Orden creada correctamente' });
 
+      if (typeof data.sessionId === 'string') {
+        useCartStore.getState().setSessionId(data.sessionId);
+      }
+
+      if (data.orderId) {
+        sessionStorage.setItem('kioto:pending-order-id', String(data.orderId));
+      }
+
       if (data.paymentUrl) {
         setSubmitStatus('redirecting');
         window.location.href = data.paymentUrl;
@@ -275,6 +302,8 @@ export function CheckoutPage() {
           </h1>
           <Stepper steps={steps} />
         </div>
+
+        <PendingPaymentBanner className="mb-10" variant="checkout" />
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 items-start">
           <div className="lg:col-span-7 space-y-12">

@@ -2,6 +2,7 @@ import { Notification, NotificationType } from '../models/notification';
 import Order from '../models/Order';
 import Product from '../models/Product';
 import { emitNotification } from '../socket';
+import type { PaymentFailureReason } from './galioPaymentStatus';
 
 interface CreateNotificationData {
   type: NotificationType;
@@ -35,6 +36,53 @@ export const notifyOrderPaid = async (orderId: string) => {
     type: 'order',
     title: 'Pago confirmado',
     message: `Pedido #${order._id.toString().slice(-8)} pagado · $${order.total.toFixed(2)}`,
+    orderId: order._id.toString(),
+  });
+};
+
+const PAYMENT_FAILURE_COPY: Record<
+  PaymentFailureReason,
+  { title: string; message: (orderLabel: string, total: number) => string }
+> = {
+  expired: {
+    title: 'Link de pago expirado',
+    message: (orderLabel, total) =>
+      `Pedido #${orderLabel} · el link de GalioPay venció (15 min) · $${total.toFixed(2)}`,
+  },
+  rejected: {
+    title: 'Pago rechazado',
+    message: (orderLabel, total) =>
+      `Pedido #${orderLabel} · GalioPay rechazó el pago · $${total.toFixed(2)}`,
+  },
+  cancelled: {
+    title: 'Pago cancelado',
+    message: (orderLabel, total) =>
+      `Pedido #${orderLabel} · el pago fue cancelado · $${total.toFixed(2)}`,
+  },
+  failed: {
+    title: 'Pago no completado',
+    message: (orderLabel, total) =>
+      `Pedido #${orderLabel} · el pago no se concretó · $${total.toFixed(2)}`,
+  },
+};
+
+/**
+ * Notify admin when Galio payment fails or expires
+ */
+export const notifyOrderPaymentFailed = async (
+  orderId: string,
+  reason: PaymentFailureReason = 'failed',
+) => {
+  const order = await Order.findById(orderId);
+  if (!order) return;
+
+  const orderLabel = order._id.toString().slice(-8);
+  const copy = PAYMENT_FAILURE_COPY[reason] ?? PAYMENT_FAILURE_COPY.failed;
+
+  return createNotification({
+    type: 'order',
+    title: copy.title,
+    message: copy.message(orderLabel, order.total),
     orderId: order._id.toString(),
   });
 };

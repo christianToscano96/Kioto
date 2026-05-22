@@ -1,13 +1,10 @@
 import type { IOrder } from '../models/Order';
 import { sendOrderConfirmationEmail, sendAdminNotificationEmail } from '../services/email';
 import { deductStockForItems, restoreStockForItems } from './stock';
-import { notifyOrderPaid } from './notifications';
+import type { PaymentFailureReason } from './galioPaymentStatus';
+import { notifyOrderPaid, notifyOrderPaymentFailed } from './notifications';
 
-const APPROVED_STATUSES = new Set(['approved', 'ok', 'paid']);
-
-export function isGalioPaymentApproved(status: string | undefined): boolean {
-  return !!status && APPROVED_STATUSES.has(status.toLowerCase());
-}
+export { isGalioPaymentApproved } from './galioPaymentStatus';
 
 export async function markOrderAsPaid(
   order: IOrder,
@@ -19,6 +16,7 @@ export async function markOrderAsPaid(
 
   await deductStockForItems(order.items as any);
   order.status = 'paid';
+  order.paymentFailureReason = undefined;
 
   if (options?.galioPaymentId) {
     order.galioPaymentId = options.galioPaymentId;
@@ -47,10 +45,24 @@ export async function markOrderAsPaid(
   return { alreadyProcessed: false };
 }
 
-export async function markOrderAsFailed(order: IOrder): Promise<void> {
-  if (order.status === 'paid' || order.status === 'cancelled') return;
+export async function markOrderAsFailed(
+  order: IOrder,
+  options?: { reason?: PaymentFailureReason; notify?: boolean },
+): Promise<boolean> {
+  if (order.status === 'paid' || order.status === 'cancelled') {
+    return false;
+  }
+
+  const wasAlreadyFailed = order.status === 'failed';
   order.status = 'failed';
+  order.paymentFailureReason = options?.reason ?? order.paymentFailureReason ?? 'failed';
   await order.save();
+
+  if (!wasAlreadyFailed && options?.notify !== false) {
+    notifyOrderPaymentFailed(order._id.toString(), order.paymentFailureReason).catch(console.error);
+  }
+
+  return !wasAlreadyFailed;
 }
 
 export async function markOrderAsCancelled(

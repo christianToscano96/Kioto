@@ -104,11 +104,22 @@ export function useNotificationsSocket() {
     // Listen for notifications
     socket.on('notification', (notification: Notification) => {
       addNotification(notification);
-      
-      // Show toast notification
+
+      const title = notification.title.toLowerCase();
+      const isPaymentFailure =
+        title.includes('expirado') ||
+        title.includes('rechazado') ||
+        title.includes('no completado') ||
+        title.includes('pago cancelado');
+
       showToast({
-        type: notification.type === 'order' ? 'info' : 
-              notification.type === 'low_stock' ? 'warning' : 'error',
+        type: isPaymentFailure
+          ? 'warning'
+          : notification.type === 'order'
+            ? 'info'
+            : notification.type === 'low_stock'
+              ? 'warning'
+              : 'error',
         title: notification.title,
         message: notification.message,
         duration: 8000,
