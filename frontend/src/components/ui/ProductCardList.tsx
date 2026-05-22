@@ -1,5 +1,6 @@
 import { memo } from "react";
 import { ShoppingBag, Eye } from '@/components/icons';
+import { usePrefetchProductDetail } from '@/hooks/usePrefetchProductDetail';
 import type { Product } from "../../../../shared/src";
 
 interface ProductCardListProps {
@@ -21,8 +22,13 @@ export function ProductCardList({
   hasSizes,
   onAddToCart,
 }: ProductCardListProps) {
+  const { prefetchProps } = usePrefetchProductDetail(product._id);
+
   return (
-    <div className="group bg-surface-container-low rounded-xl overflow-hidden border border-outline-variant/30 hover:shadow-xl hover:border-outline-variant/60 transition-all duration-300">
+    <div
+      className="group bg-surface-container-low rounded-xl overflow-hidden border border-outline-variant/30 hover:shadow-xl hover:border-outline-variant/60 transition-all duration-300"
+      {...prefetchProps}
+    >
       <div className="flex flex-col sm:flex-row">
         {/* Image */}
         <div

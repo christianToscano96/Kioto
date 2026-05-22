@@ -1,18 +1,23 @@
-import { Heart, Share2, Minus, Plus, ChevronDown, Loader2 } from '@/components/icons';
-import { useState, useEffect, useMemo } from 'react';
-import { useParams } from 'react-router-dom';
+import { Heart, Share2, ChevronDown, Loader2 } from '@/components/icons';
+import { useState, useEffect } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import { useCartStore } from '@/store/cart';
 import { useProductsStore, useProductsError } from '@/store/products';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
-import { SizeSelector } from '@/components/ui/SizeSelector';
-import { QuantitySelector } from '@/components/ui/QuantitySelector';
-import { ColorSwatch } from '@/components/ui/ColorSwatch';
+import { ProductVariantPicker, ProductAddToCartCta } from '@/components/ui/ProductVariantPicker';
 import type { Product } from '@shared/index';
 import { showToast } from '@/components/ui/Toast';
 import { BackButton } from '@/components/ui/BackButton';
 import { useProductStock } from '@/hooks/useProductStock';
+import { usePrefetchProductDetail } from '@/hooks/usePrefetchProductDetail';
 import { getTotalStock } from '@shared/index';
+import { getQuickAddError } from '@/lib/quickAddStock';
+import {
+  ADD_TO_CART_FAILURE_MESSAGE,
+  getAddToCartSuccessToast,
+  getSelectionSummary,
+} from '@/lib/variantSelection';
 
 const AccordionSection = ({
   title,
@@ -32,9 +37,14 @@ const AccordionSection = ({
 
 const RelatedProductCard = ({ product }: { product: Product }) => {
   const totalStock = getTotalStock(product);
+  const { prefetchProps } = usePrefetchProductDetail(product._id);
 
   return (
-    <div className="min-w-[160px] sm:min-w-[280px] bg-surface-container-highest rounded-xl p-3 sm:p-4 snap-start group transition-all duration-300 hover:shadow-lg">
+    <Link
+      to={`/products/${product._id}`}
+      className="min-w-[160px] sm:min-w-[280px] bg-surface-container-highest rounded-xl p-3 sm:p-4 snap-start group transition-all duration-300 hover:shadow-lg block"
+      {...prefetchProps}
+    >
       <div className="aspect-[3/4] overflow-hidden mb-3 sm:mb-4 rounded-lg relative">
         <img
           src={product.images?.[0] || 'https://placehold.co/400x500/fdfae9/99452c?text=Product'}
@@ -54,7 +64,7 @@ const RelatedProductCard = ({ product }: { product: Product }) => {
       </div>
       <h3 className="text-base sm:text-lg font-serif text-on-surface line-clamp-1">{product.name}</h3>
       <p className="text-sm mt-1 text-on-surface-variant font-serif">${product.price.toFixed(2)}</p>
-    </div>
+    </Link>
   );
 };
 
@@ -72,29 +82,7 @@ export function ProductDetailPage() {
   const { products: allProducts } = useProductsStore();
   const { addToCart, isSyncing } = useCartStore();
 
-  const {
-    inventoryMode,
-    totalStock,
-    sizes,
-    getAvailableColors,
-    resolveSelection,
-  } = useProductStock(product);
-
-  const availableColors = useMemo(
-    () => getAvailableColors(selectedSize || undefined),
-    [getAvailableColors, selectedSize],
-  );
-
-  const availableStock = useMemo(() => {
-    try {
-      return resolveSelection({
-        size: selectedSize || undefined,
-        color: selectedColor || undefined,
-      }).availableStock;
-    } catch {
-      return inventoryMode === 'unit' ? totalStock : 0;
-    }
-  }, [resolveSelection, selectedSize, selectedColor, inventoryMode, totalStock]);
+  const { resolveSelection } = useProductStock(product);
 
   useEffect(() => {
     if (id) {
@@ -115,26 +103,23 @@ export function ProductDetailPage() {
   const handleAddToCart = async () => {
     if (!product || isAddingToCart || isSyncing) return;
 
+    const selection = {
+      selectedSize: selectedSize || '',
+      selectedColor: selectedColor || '',
+      quantity,
+    };
+
+    const error = getQuickAddError(product, selection);
+    if (error) {
+      showToast({ type: 'error', title: error });
+      return;
+    }
+
     try {
-      if (inventoryMode === 'size_color' && !selectedSize) {
-        showToast({ type: 'error', title: 'Seleccioná una talla' });
-        return;
-      }
-
-      if ((inventoryMode === 'color' || inventoryMode === 'size_color') && availableColors.length > 1 && !selectedColor) {
-        showToast({ type: 'error', title: 'Seleccioná un color' });
-        return;
-      }
-
       const resolved = resolveSelection({
         size: selectedSize || undefined,
         color: selectedColor || undefined,
       });
-
-      if (resolved.availableStock < quantity) {
-        showToast({ type: 'error', title: 'Stock insuficiente' });
-        return;
-      }
 
       setIsAddingToCart(true);
       await addToCart(
@@ -143,10 +128,10 @@ export function ProductDetailPage() {
         resolved.resolvedSize,
         resolved.resolvedColor,
       );
-      showToast({ type: 'success', title: 'Producto agregado al carrito' });
+      showToast({ type: 'success', ...getAddToCartSuccessToast(product, selection) });
     } catch (err) {
       console.error('Failed to add to cart:', err);
-      showToast({ type: 'error', title: 'Error al agregar al carrito' });
+      showToast({ type: 'error', title: ADD_TO_CART_FAILURE_MESSAGE });
     } finally {
       setIsAddingToCart(false);
     }
@@ -181,19 +166,18 @@ export function ProductDetailPage() {
       ? product.images
       : ['https://placehold.co/800x1000/fdfae9/1c1c12?text=Product'];
 
-  const requiresSize = inventoryMode === 'size_color';
-  const requiresColor = inventoryMode === 'color' || inventoryMode === 'size_color';
-  const isAddDisabled =
-    (requiresSize && !selectedSize) ||
-    (requiresColor && availableColors.length > 1 && !selectedColor) ||
-    isSyncing ||
-    isAddingToCart ||
-    availableStock === 0;
+  const selection = {
+    selectedSize: selectedSize || '',
+    selectedColor: selectedColor || '',
+    quantity,
+  };
+
+  const selectionSummary = getSelectionSummary(product, selection);
 
   return (
     <>
       <Header />
-      <main className="max-w-7xl mx-auto px-4 sm:px-8 py-8 sm:py-12 mt-8 sm:mt-12">
+      <main className="max-w-7xl mx-auto px-4 sm:px-8 py-8 sm:py-12 mt-8 sm:mt-12 pb-28 lg:pb-12">
         <div className="text-center mt-6">
           <BackButton label="Volver" showLabelOnMobile={true} page="product-detail" />
         </div>
@@ -260,63 +244,24 @@ export function ProductDetailPage() {
             </div>
 
             <div className="space-y-6 sm:space-y-8 mb-8 sm:mb-12">
-              {availableStock === 0 && (requiresSize ? selectedSize : true) && (
-                <p className="text-sm text-error font-medium mb-4">Agotado - Próximamente disponible</p>
-              )}
-              {availableStock > 0 && availableStock <= 5 && (
-                <p className="text-sm text-verde-bosque-600 font-medium mb-4">
-                  ¡Últimas {availableStock} unidades disponibles!
-                </p>
-              )}
-
-              {requiresSize && (
-                <SizeSelector
-                  sizes={sizes}
-                  selectedSize={selectedSize}
-                  onSelectSize={(size) => {
-                    setSelectedSize(size);
-                    setSelectedColor(null);
-                    setQuantity(1);
-                  }}
-                  product={product}
-                />
-              )}
-
-              {requiresColor && availableColors.length > 0 && (
-                <ColorSwatch
-                  colors={availableColors}
-                  selectedColor={selectedColor}
-                  onSelectColor={(color) => {
-                    setSelectedColor(color);
-                    setQuantity(1);
-                  }}
-                />
-              )}
-
-              <div className="mt-6 sm:mt-8">
-                <span className="text-[10px] uppercase tracking-widest text-on-surface-variant/60 font-label">
-                  Cantidad
-                </span>
-                <QuantitySelector
-                  quantity={quantity}
-                  maxStock={availableStock}
-                  onDecrement={() => setQuantity(Math.max(1, quantity - 1))}
-                  onIncrement={() => setQuantity(Math.min(quantity + 1, availableStock))}
-                  disabled={availableStock === 0}
-                />
-              </div>
-
-              <button
-                onClick={handleAddToCart}
-                disabled={isAddDisabled}
-                className="w-full bg-primary-container text-on-primary-container py-4 sm:py-5 rounded-lg font-bold uppercase tracking-widest font-label hover:bg-primary transition-all duration-300 shadow-md disabled:opacity-50 mt-6 sm:mt-8 min-h-[44px]"
-              >
-                {availableStock === 0
-                  ? 'Agotado'
-                  : isSyncing || isAddingToCart
-                  ? 'Añadiendo...'
-                  : 'Añadir al Carrito'}
-              </button>
+              <ProductVariantPicker
+                product={product}
+                selection={selection}
+                onSizeChange={(size) => {
+                  setSelectedSize(size);
+                  setSelectedColor(null);
+                  setQuantity(1);
+                }}
+                onColorChange={(color) => {
+                  setSelectedColor(color);
+                  setQuantity(1);
+                }}
+                onQuantityChange={setQuantity}
+                onSubmit={handleAddToCart}
+                isSubmitting={isAddingToCart}
+                isSyncing={isSyncing}
+                layout="detail"
+              />
             </div>
 
             <div className="flex items-center gap-6 pt-6 sm:pt-8 border-t border-dashed border-outline-variant/40">
@@ -358,6 +303,27 @@ export function ProductDetailPage() {
           </section>
         )}
       </main>
+
+      <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-outline-variant/20 bg-background/95 backdrop-blur-xl px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="max-w-7xl mx-auto flex items-center gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-lg font-serif text-primary">${product.price.toFixed(2)}</p>
+            {selectionSummary && (
+              <p className="text-[10px] text-on-surface-variant truncate">{selectionSummary}</p>
+            )}
+          </div>
+          <ProductAddToCartCta
+            product={product}
+            selection={selection}
+            onSubmit={handleAddToCart}
+            isSubmitting={isAddingToCart}
+            isSyncing={isSyncing}
+            short
+            className="shrink-0 bg-primary-container text-on-primary-container px-5 py-3 rounded-lg font-bold uppercase tracking-wider font-label text-xs disabled:opacity-50 min-h-[44px]"
+          />
+        </div>
+      </div>
+
       <Footer />
     </>
   );

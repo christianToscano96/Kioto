@@ -1,6 +1,7 @@
 import { Eye, ChevronLeft, ChevronRight, Heart } from '@/components/icons';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { usePrefetchProductDetail } from '@/hooks/usePrefetchProductDetail';
 import type { Product } from '../../../../shared/src/index';
 import { getAvailableSizes, getInventoryMode, getTotalStock } from '@shared/index';
 
@@ -129,9 +130,13 @@ export function ProductCard({ product, onQuickAdd }: ProductCardProps) {
   // Use product's sizes if available, otherwise default
   const sizes = getAvailableSizes(product);
   const stock = getTotalStock(product);
+  const { prefetchProps } = usePrefetchProductDetail(product._id);
 
   return (
-    <div className="group bg-surface-container rounded-xl overflow-hidden transition-all duration-500 hover:shadow-xl border-l-2 border-dashed border-outline-variant">
+    <div
+      className="group bg-surface-container rounded-xl overflow-hidden transition-all duration-500 hover:shadow-xl border-l-2 border-dashed border-outline-variant"
+      {...prefetchProps}
+    >
       {/* Image Section */}
       <div className="aspect-[3/4] overflow-hidden relative">
         <Link to={`/products/${product._id}`} className="block w-full h-full">
