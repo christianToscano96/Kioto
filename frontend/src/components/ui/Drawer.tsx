@@ -14,6 +14,7 @@ interface DrawerProps {
    * Pasar `false` para usar el drawer en desktop también (ej: sidebar de carrito).
    */
   hideOnDesktop?: boolean;
+  footer?: ReactNode;
 }
 
 export function Drawer({
@@ -23,6 +24,7 @@ export function Drawer({
   children,
   position = 'left',
   hideOnDesktop = true,
+  footer,
 }: DrawerProps) {
   useEffect(() => {
     if (isOpen) {
@@ -76,6 +78,12 @@ export function Drawer({
           <div className="flex-1 overflow-y-auto p-4">
             {children}
           </div>
+
+          {footer && (
+            <div className="border-t border-outline-variant/20 bg-background p-4">
+              {footer}
+            </div>
+          )}
         </div>
       </div>
     </div>,

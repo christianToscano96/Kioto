@@ -1,5 +1,5 @@
 import { ChevronDown } from '@/components/icons';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export type SortOption = 'relevance' | 'price-asc' | 'price-desc' | 'name-asc' | 'name-desc';
 
@@ -10,36 +10,64 @@ interface SortDropdownProps {
 
 const sortOptions: { value: SortOption; label: string }[] = [
   { value: 'relevance', label: 'Relevancia' },
-  { value: 'price-asc', label: 'Precio: Menor a Mayor' },
-  { value: 'price-desc', label: 'Precio: Mayor a Menor' },
+  { value: 'price-asc', label: 'Precio: menor a mayor' },
+  { value: 'price-desc', label: 'Precio: mayor a menor' },
   { value: 'name-asc', label: 'Nombre: A-Z' },
   { value: 'name-desc', label: 'Nombre: Z-A' },
 ];
 
 export function SortDropdown({ value, onChange }: SortDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  const currentLabel = sortOptions.find((opt) => opt.value === value)?.label ?? 'Relevancia';
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 font-label text-xs uppercase tracking-widest text-on-surface border-b border-dashed border-outline-variant/40 pb-1 hover:border-primary transition-all"
+        type="button"
+        onClick={() => setIsOpen((open) => !open)}
+        className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-outline-variant/35 bg-background px-3 py-2 font-label text-[11px] uppercase tracking-wide text-on-surface transition-colors hover:border-primary/40"
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
       >
-        <span>Ordenar por: {sortOptions.find(opt => opt.value === value)?.label}</span>
-        <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <span className="text-on-surface-variant">Ordenar</span>
+        <span className="max-w-[140px] truncate">{currentLabel}</span>
+        <ChevronDown size={16} className={`shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-56 bg-surface-container-low rounded-lg shadow-lg border border-outline-variant/40 z-10">
+        <div
+          role="listbox"
+          className="absolute right-0 z-20 mt-2 w-56 overflow-hidden rounded-xl border border-outline-variant/30 bg-background shadow-lg"
+        >
           {sortOptions.map((option) => (
             <button
               key={option.value}
+              type="button"
+              role="option"
+              aria-selected={value === option.value}
               onClick={() => {
                 onChange(option.value);
                 setIsOpen(false);
               }}
-              className={`w-full px-4 py-2 text-left font-label text-xs uppercase tracking-widest hover:bg-surface-container transition-colors ${
-                value === option.value ? 'text-primary font-bold' : 'text-on-surface'
+              className={`w-full px-4 py-3 text-left font-body text-sm transition-colors ${
+                value === option.value
+                  ? 'bg-primary-container text-on-primary-container'
+                  : 'text-on-surface hover:bg-surface-container'
               }`}
             >
               {option.label}
