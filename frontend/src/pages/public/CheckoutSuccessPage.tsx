@@ -18,8 +18,10 @@ export function CheckoutSuccessPage() {
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('confirming');
 
   useEffect(() => {
-    clear();
-  }, [clear]);
+    if (paymentStatus === 'paid') {
+      clear();
+    }
+  }, [paymentStatus, clear]);
 
   useEffect(() => {
     if (!orderId) {

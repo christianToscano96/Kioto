@@ -12,7 +12,7 @@ import {
   type DeliveryMethod,
 } from '../utils/shipping';
 import Cart from '../models/Cart';
-import Order from '../models/Order';
+import Order, { type IOrder } from '../models/Order';
 import { assertStockAvailable, deductStockForItems } from '../utils/stock';
 import { sendOrderConfirmationEmail } from '../services/email';
 import { createPaymentLink, getPayment } from '../services/galio';
@@ -27,6 +27,109 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
 const getSessionId = (req: Request): string => {
   return req.cookies?.sessionId || (req.headers['x-session-id'] as string) || crypto.randomUUID();
 };
+
+type CheckoutOrderItem = {
+  productId: unknown;
+  quantity: number;
+  price: number;
+  size?: string;
+  color?: string;
+};
+
+function buildCartSignature(items: CheckoutOrderItem[]): string {
+  return items
+    .map((item) => {
+      const productId =
+        typeof item.productId === 'object' &&
+        item.productId !== null &&
+        '_id' in (item.productId as object)
+          ? String((item.productId as { _id: unknown })._id)
+          : String(item.productId);
+      return [productId, item.quantity, item.size ?? '', item.color ?? '', item.price].join(':');
+    })
+    .sort()
+    .join('|');
+}
+
+async function resolvePendingOrder(options: {
+  sessionId: string;
+  cartSignature: string;
+  orderItems: CheckoutOrderItem[];
+  subtotal: number;
+  shipping: number;
+  total: number;
+  deliveryMethod: DeliveryMethod;
+  paymentMethod: 'galio';
+  shippingDetails: IOrder['shippingDetails'];
+}): Promise<{ order: IOrder; isReuse: boolean }> {
+  const existingPending = await Order.findOne({
+    sessionId: options.sessionId,
+    status: 'pending',
+  }).sort({ createdAt: -1 });
+
+  if (existingPending) {
+    const existingSignature = buildCartSignature(existingPending.items as CheckoutOrderItem[]);
+    const sameCheckout =
+      existingSignature === options.cartSignature &&
+      existingPending.total === options.total &&
+      existingPending.deliveryMethod === options.deliveryMethod;
+
+    if (sameCheckout) {
+      existingPending.shippingDetails = options.shippingDetails;
+      existingPending.subtotal = options.subtotal;
+      existingPending.shipping = options.shipping;
+      await existingPending.save();
+      return { order: existingPending, isReuse: true };
+    }
+
+    existingPending.status = 'cancelled';
+    await existingPending.save();
+  }
+
+  const order = await Order.create({
+    sessionId: options.sessionId,
+    items: options.orderItems,
+    subtotal: options.subtotal,
+    shipping: options.shipping,
+    total: options.total,
+    status: 'pending',
+    deliveryMethod: options.deliveryMethod,
+    paymentMethod: options.paymentMethod,
+    shippingDetails: options.shippingDetails,
+  });
+
+  return { order, isReuse: false };
+}
+
+async function attachGalioPaymentLink(
+  order: IOrder,
+  galioItems: Array<{ title: string; quantity: number; unitPrice: number; currencyId: string }>,
+  deliveryMethod: DeliveryMethod,
+): Promise<string> {
+  try {
+    const galioLink = await createPaymentLink({
+      items: galioItems,
+      referenceId: order._id.toString(),
+      backUrl: {
+        success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/checkout/success?orderId=${order._id}&delivery=${deliveryMethod}`,
+        failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/checkout/cancel?orderId=${order._id}`,
+      },
+      notificationUrl: `${process.env.PUBLIC_API_URL || 'http://localhost:4000'}/api/webhooks/galio`,
+      sandbox: process.env.GALIO_SANDBOX === 'true',
+    });
+
+    order.paymentUrl = galioLink.url;
+    order.galioPaymentId = undefined;
+    await order.save();
+    return galioLink.url;
+  } catch (galioError) {
+    console.error('GalioPay error creating payment link:', galioError);
+    const fallbackUrl = `https://pay.galio.app/pay/${order._id}`;
+    order.paymentUrl = fallbackUrl;
+    await order.save();
+    return fallbackUrl;
+  }
+}
 
 // POST /api/checkout - Create checkout session (fake mode - no Stripe)
 router.post('/', validate(createCheckoutSchema), async (req: Request, res: Response) => {
@@ -97,78 +200,55 @@ router.post('/', validate(createCheckoutSchema), async (req: Request, res: Respo
       },
     };
 
-// Fake checkout: Create order directly without Stripe (no transactions for standalone MongoDB)
-    const order = await Order.create({
+    const orderItems: CheckoutOrderItem[] = cart.items.map((item) => ({
+      productId: (item.productId as any)._id || item.productId,
+      quantity: item.quantity,
+      price: item.price,
+      size: (item as any).size,
+      color: (item as any).color,
+    }));
+    const cartSignature = buildCartSignature(orderItems);
+
+    const { order, isReuse } = await resolvePendingOrder({
       sessionId,
-      items: cart.items.map(item => ({
-        productId: (item.productId as any)._id || item.productId,
-        quantity: item.quantity,
-        price: item.price,
-        size: (item as any).size,
-        color: (item as any).color,
-      })),
+      cartSignature,
+      orderItems,
       subtotal,
       shipping,
       total,
-      status: 'pending',
       deliveryMethod,
       paymentMethod,
       shippingDetails,
     });
 
-// Create lightweight admin notification (payment still pending)
-    const { notifyNewOrder } = await import('../utils/notifications');
-    notifyNewOrder(order._id.toString()).catch(console.error);
-
-    // Stock is deducted only when payment succeeds (via webhook)
-    // This ensures stock is NOT reduced if payment is rejected/fails
-
-    // Mark cart as converted (customer initiated checkout)
-    await markCartAsConverted(sessionId);
-
-    let paymentUrl = null;
-    try {
-      const galioItems = [
-        ...cart.items.map(item => ({
-          title: (item.productId as any)?.name || 'Product',
-          quantity: item.quantity,
-          unitPrice: item.price,
-          currencyId: 'ARS',
-        })),
-        ...(shipping > 0 ? [{
-          title: 'Envío',
-          quantity: 1,
-          unitPrice: shipping,
-          currencyId: 'ARS',
-        }] : []),
-      ];
-
-      const galioLink = await createPaymentLink({
-        items: galioItems,
-        referenceId: order._id.toString(),
-        backUrl: {
-          success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/checkout/success?orderId=${order._id}&delivery=${deliveryMethod}`,
-          failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/checkout/cancel?orderId=${order._id}`,
-        },
-        notificationUrl: `${process.env.PUBLIC_API_URL || 'http://localhost:4000'}/api/webhooks/galio`,
-        sandbox: process.env.GALIO_SANDBOX === 'true',
-      });
-
-      order.paymentUrl = galioLink.url;
-      paymentUrl = galioLink.url;
-      await order.save();
-    } catch (galioError) {
-      console.error('GalioPay error creating payment link:', galioError);
-      paymentUrl = `https://pay.galio.app/pay/${order._id}`;
-      order.paymentUrl = paymentUrl;
-      await order.save();
+    if (!isReuse) {
+      const { notifyNewOrder } = await import('../utils/notifications');
+      notifyNewOrder(order._id.toString()).catch(console.error);
     }
+
+    const galioItems = [
+      ...cart.items.map((item) => ({
+        title: (item.productId as any)?.name || 'Product',
+        quantity: item.quantity,
+        unitPrice: item.price,
+        currencyId: 'ARS',
+      })),
+      ...(shipping > 0 ? [{
+        title: 'Envío',
+        quantity: 1,
+        unitPrice: shipping,
+        currencyId: 'ARS',
+      }] : []),
+    ];
+
+    const paymentUrl = await attachGalioPaymentLink(order, galioItems, deliveryMethod);
 
     res.status(200).json({
       orderId: order._id,
       sessionId: `fake_session_${order._id}`,
       success: true,
-      message: 'Order created successfully',
+      message: isReuse ? 'Pending order reused' : 'Order created successfully',
+      reused: isReuse,
       shipping,
       shippingLabel: shippingQuote.label,
       deliveryMethod,

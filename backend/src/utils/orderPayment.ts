@@ -26,6 +26,11 @@ export async function markOrderAsPaid(
 
   await order.save();
 
+  if (order.sessionId) {
+    const { markCartAsConverted } = await import('./cart');
+    await markCartAsConverted(order.sessionId);
+  }
+
   const orderId = order._id.toString();
 
   if (!options?.skipEmails) {

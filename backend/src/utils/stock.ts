@@ -9,6 +9,32 @@ import {
 
 export type { InventorySelection, ResolvedInventory };
 
+const LOW_STOCK_THRESHOLD = 5;
+
+async function checkStockAlerts(
+  productId: Types.ObjectId | string,
+  selection: InventorySelection = {},
+): Promise<void> {
+  const product = await Product.findById(productId)
+    .select('name inventoryMode stock colors sizeVariants')
+    .exec();
+
+  if (!product) return;
+
+  const resolved = resolveStockSelection(product, selection);
+  const remaining = resolved.availableStock;
+  const { notifyLowStock, notifyOutOfStock } = await import('./notifications');
+
+  if (remaining <= 0) {
+    await notifyOutOfStock(product._id.toString());
+    return;
+  }
+
+  if (remaining <= LOW_STOCK_THRESHOLD) {
+    await notifyLowStock(product._id.toString(), remaining);
+  }
+}
+
 export const resolveStockSelection = (
   product: IProduct,
   selection: InventorySelection = {},
@@ -53,6 +79,7 @@ export const deductProductStock = async (
       throw new Error('Insufficient stock');
     }
 
+    await checkStockAlerts(product._id, selection);
     return resolved;
   }
 
@@ -71,6 +98,7 @@ export const deductProductStock = async (
       throw new Error('Insufficient stock');
     }
 
+    await checkStockAlerts(product._id, selection);
     return resolved;
   }
 
@@ -89,6 +117,7 @@ export const deductProductStock = async (
     throw new Error('Insufficient stock');
   }
 
+  await checkStockAlerts(product._id, selection);
   return resolved;
 };
 
