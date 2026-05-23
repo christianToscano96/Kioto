@@ -237,7 +237,7 @@ export const settingsApi = {
     api.get<Settings>('/settings'),
 
   update: (settings: Settings) =>
-    api.put<{ settings: Settings }>('/settings', { settings }),
+    api.put<Settings>('/settings', { settings }),
 
   testGalio: (data?: { apiKey?: string; clientId?: string; sandbox?: boolean }) =>
     api.post<{ ok: true; sandbox: boolean; message: string }>('/settings/test/galio', data),

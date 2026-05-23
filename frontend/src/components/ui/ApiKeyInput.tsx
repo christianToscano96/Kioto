@@ -19,7 +19,7 @@ export function ApiKeyInput({ label, value, onChange, secret = false }: ApiKeyIn
           type={show || !secret ? 'text' : 'password'}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={secret ? '••••••••••••' : 'Ingresá la clave'}
+          placeholder={secret ? (value === '__CONFIGURED__' ? 'Clave guardada (dejar vacío para mantener)' : 'Dejar vacío para usar .env') : 'Ingresá la clave'}
           className="w-full h-10 px-3 rounded-lg border border-outline bg-white text-sm font-mono
                      focus:outline-none focus:ring-2 focus:ring-primary"
         />

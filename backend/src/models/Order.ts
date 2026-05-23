@@ -16,6 +16,8 @@ export interface IOrder extends Document {
   paymentFailureReason?: 'expired' | 'rejected' | 'failed' | 'cancelled';
   deliveryMethod?: 'shipping' | 'pickup';
     paymentMethod?: 'transfer' | 'galio';
+  confirmationEmailSentAt?: Date;
+  shippedEmailSentAt?: Date;
     shippingDetails?: {
     name: string;
     email: string;
@@ -110,6 +112,12 @@ const orderSchema = new Schema<IOrder>(
       type: String,
       enum: ['transfer', 'galio'],
       default: 'galio',
+    },
+    confirmationEmailSentAt: {
+      type: Date,
+    },
+    shippedEmailSentAt: {
+      type: Date,
     },
     shippingDetails: {
       name: { type: String },

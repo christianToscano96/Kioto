@@ -1,38 +1,46 @@
-import { Router, Request, Response } from 'express';
-import Stripe from 'stripe';
-import { validate } from '../middleware/validation';
-import { createCheckoutSchema } from '../schemas/checkout';
-import { getOrCreateCart, calculateCartTotal, markCartAsConverted } from '../utils/cart';
-import { ensureSessionCookie } from '../utils/session';
+import { Router, Request, Response } from "express";
+import Stripe from "stripe";
+import { validate } from "../middleware/validation";
+import { createCheckoutSchema } from "../schemas/checkout";
+import {
+  getOrCreateCart,
+  calculateCartTotal,
+  markCartAsConverted,
+} from "../utils/cart";
+import { ensureSessionCookie } from "../utils/session";
 import {
   calculateShipping,
   getProvinceByName,
   isLocalPostalCode,
   PICKUP_POINT,
   type DeliveryMethod,
-} from '../utils/shipping';
-import Cart from '../models/Cart';
-import Order, { type IOrder } from '../models/Order';
-import { assertStockAvailable, deductStockForItems } from '../utils/stock';
-import { sendOrderConfirmationEmail } from '../services/email';
-import { createPaymentLink, getPayment, getGalioSandbox } from '../services/galio';
+} from "../utils/shipping";
+import Cart from "../models/Cart";
+import Order, { type IOrder } from "../models/Order";
+import { assertStockAvailable, deductStockForItems } from "../utils/stock";
+import { sendOrderConfirmationEmailIfNeeded } from "../services/email";
+import {
+  createPaymentLink,
+  getPayment,
+  getGalioSandbox,
+} from "../services/galio";
 import {
   isGalioPaymentApproved,
   isGalioPaymentFailed,
   getPaymentFailureReason,
-} from '../utils/galioPaymentStatus';
-import { markOrderAsFailed, markOrderAsPaid } from '../utils/orderPayment';
+} from "../utils/galioPaymentStatus";
+import { markOrderAsFailed, markOrderAsPaid } from "../utils/orderPayment";
 import {
   getPendingOrderExpiresAt,
   getPendingOrderTimeLeftMs,
   getPendingOrderTtlMinutes,
   isPendingGalioOrderActive,
-} from '../utils/pendingOrderTtl';
+} from "../utils/pendingOrderTtl";
 
 const router = Router();
 
 // Initialize Stripe
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
 
 type CheckoutOrderItem = {
   productId: unknown;
@@ -46,15 +54,21 @@ function buildCartSignature(items: CheckoutOrderItem[]): string {
   return items
     .map((item) => {
       const productId =
-        typeof item.productId === 'object' &&
+        typeof item.productId === "object" &&
         item.productId !== null &&
-        '_id' in (item.productId as object)
+        "_id" in (item.productId as object)
           ? String((item.productId as { _id: unknown })._id)
           : String(item.productId);
-      return [productId, item.quantity, item.size ?? '', item.color ?? '', item.price].join(':');
+      return [
+        productId,
+        item.quantity,
+        item.size ?? "",
+        item.color ?? "",
+        item.price,
+      ].join(":");
     })
     .sort()
-    .join('|');
+    .join("|");
 }
 
 async function resolvePendingOrder(options: {
@@ -65,16 +79,18 @@ async function resolvePendingOrder(options: {
   shipping: number;
   total: number;
   deliveryMethod: DeliveryMethod;
-  paymentMethod: 'galio';
-  shippingDetails: IOrder['shippingDetails'];
+  paymentMethod: "galio";
+  shippingDetails: IOrder["shippingDetails"];
 }): Promise<{ order: IOrder; isReuse: boolean }> {
   const existingPending = await Order.findOne({
     sessionId: options.sessionId,
-    status: 'pending',
+    status: "pending",
   }).sort({ createdAt: -1 });
 
   if (existingPending) {
-    const existingSignature = buildCartSignature(existingPending.items as CheckoutOrderItem[]);
+    const existingSignature = buildCartSignature(
+      existingPending.items as CheckoutOrderItem[],
+    );
     const sameCheckout =
       existingSignature === options.cartSignature &&
       existingPending.total === options.total &&
@@ -88,7 +104,7 @@ async function resolvePendingOrder(options: {
       return { order: existingPending, isReuse: true };
     }
 
-    existingPending.status = 'cancelled';
+    existingPending.status = "cancelled";
     await existingPending.save();
   }
 
@@ -98,7 +114,7 @@ async function resolvePendingOrder(options: {
     subtotal: options.subtotal,
     shipping: options.shipping,
     total: options.total,
-    status: 'pending',
+    status: "pending",
     deliveryMethod: options.deliveryMethod,
     paymentMethod: options.paymentMethod,
     shippingDetails: options.shippingDetails,
@@ -109,7 +125,12 @@ async function resolvePendingOrder(options: {
 
 async function attachGalioPaymentLink(
   order: IOrder,
-  galioItems: Array<{ title: string; quantity: number; unitPrice: number; currencyId: string }>,
+  galioItems: Array<{
+    title: string;
+    quantity: number;
+    unitPrice: number;
+    currencyId: string;
+  }>,
   deliveryMethod: DeliveryMethod,
 ): Promise<string> {
   try {
@@ -117,10 +138,10 @@ async function attachGalioPaymentLink(
       items: galioItems,
       referenceId: order._id.toString(),
       backUrl: {
-        success: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/checkout/success?orderId=${order._id}&delivery=${deliveryMethod}`,
-        failure: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/checkout/cancel?orderId=${order._id}`,
+        success: `${process.env.FRONTEND_URL || "http://localhost:5173"}/checkout/success?orderId=${order._id}&delivery=${deliveryMethod}`,
+        failure: `${process.env.FRONTEND_URL || "http://localhost:5173"}/checkout/cancel?orderId=${order._id}`,
       },
-      notificationUrl: `${process.env.PUBLIC_API_URL || 'http://localhost:4000'}/api/webhooks/galio`,
+      notificationUrl: `${process.env.PUBLIC_API_URL || "http://localhost:4000"}/api/webhooks/galio`,
       sandbox: await getGalioSandbox(),
     });
 
@@ -129,7 +150,7 @@ async function attachGalioPaymentLink(
     await order.save();
     return galioLink.url;
   } catch (galioError) {
-    console.error('GalioPay error creating payment link:', galioError);
+    console.error("GalioPay error creating payment link:", galioError);
     const fallbackUrl = `https://pay.galio.app/pay/${order._id}`;
     order.paymentUrl = fallbackUrl;
     await order.save();
@@ -138,151 +159,180 @@ async function attachGalioPaymentLink(
 }
 
 // POST /api/checkout - Create checkout session (fake mode - no Stripe)
-router.post('/', validate(createCheckoutSchema), async (req: Request, res: Response) => {
-  try {
-    const sessionId = ensureSessionCookie(req, res);
-    const cart = await getOrCreateCart(sessionId);
+router.post(
+  "/",
+  validate(createCheckoutSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const sessionId = ensureSessionCookie(req, res);
+      const cart = await getOrCreateCart(sessionId);
 
-    // Check if cart has items
-    if (cart.items.length === 0) {
-      res.status(400).json({ error: 'Cart is empty' });
-      return;
-    }
-
-    // Populate product details
-    await cart.populate('items.productId', 'name images inventoryMode stock colors sizeVariants');
-
-    // Check stock availability using the same variant/color rules as cart and webhooks
-    for (const item of cart.items) {
-      const product = item.productId as any;
-      try {
-        assertStockAvailable(product, item.quantity, {
-          size: (item as any).size,
-          color: (item as any).color,
-        });
-      } catch (stockError) {
-        res.status(400).json({
-          error: stockError instanceof Error
-            ? `${product.name}: ${stockError.message}`
-            : `Insufficient stock for ${product.name}`,
-        });
+      // Check if cart has items
+      if (cart.items.length === 0) {
+        res.status(400).json({ error: "Cart is empty" });
         return;
       }
-    }
 
-    const subtotal = calculateCartTotal(cart.items);
-    const deliveryMethod = (req.body.deliveryMethod || 'shipping') as DeliveryMethod;
-    const postalCode = req.body.shippingDetails?.address?.postal_code || '';
-    const selectedProvinceId = getProvinceByName(req.body.shippingDetails?.address?.state || '')?.id;
-    const shippingQuote = calculateShipping(postalCode, deliveryMethod, selectedProvinceId);
+      // Populate product details
+      await cart.populate(
+        "items.productId",
+        "name images inventoryMode stock colors sizeVariants",
+      );
 
-    if (!shippingQuote.isValid) {
-      res.status(400).json({ error: shippingQuote.label });
-      return;
-    }
+      // Check stock availability using the same variant/color rules as cart and webhooks
+      for (const item of cart.items) {
+        const product = item.productId as any;
+        try {
+          assertStockAvailable(product, item.quantity, {
+            size: (item as any).size,
+            color: (item as any).color,
+          });
+        } catch (stockError) {
+          res.status(400).json({
+            error:
+              stockError instanceof Error
+                ? `${product.name}: ${stockError.message}`
+                : `Insufficient stock for ${product.name}`,
+          });
+          return;
+        }
+      }
 
-    if (deliveryMethod === 'pickup' && !isLocalPostalCode(postalCode)) {
-      res.status(400).json({ error: 'El retiro en punto solo está disponible para CP 4512' });
-      return;
-    }
+      const subtotal = calculateCartTotal(cart.items);
+      const deliveryMethod = (req.body.deliveryMethod ||
+        "shipping") as DeliveryMethod;
+      const postalCode = req.body.shippingDetails?.address?.postal_code || "";
+      const selectedProvinceId = getProvinceByName(
+        req.body.shippingDetails?.address?.state || "",
+      )?.id;
+      const shippingQuote = calculateShipping(
+        postalCode,
+        deliveryMethod,
+        selectedProvinceId,
+      );
 
-    const paymentMethod = 'galio';
-    const shipping = shippingQuote.cost;
-    const total = subtotal + shipping;
+      if (!shippingQuote.isValid) {
+        res.status(400).json({ error: shippingQuote.label });
+        return;
+      }
 
-    const shippingDetails = {
-      ...req.body.shippingDetails,
-      address: {
-        ...req.body.shippingDetails.address,
-        postal_code: postalCode,
-        ...(deliveryMethod === 'pickup'
-          ? {
-              line1: PICKUP_POINT.address,
-              city: 'Luján de Cuyo',
-              state: 'Mendoza',
-              country: req.body.shippingDetails.address.country || 'AR',
-            }
-          : {}),
-      },
-    };
+      if (deliveryMethod === "pickup" && !isLocalPostalCode(postalCode)) {
+        res
+          .status(400)
+          .json({
+            error: "El retiro en punto solo está disponible para CP 4512",
+          });
+        return;
+      }
 
-    const orderItems: CheckoutOrderItem[] = cart.items.map((item) => ({
-      productId: (item.productId as any)._id || item.productId,
-      quantity: item.quantity,
-      price: item.price,
-      size: (item as any).size,
-      color: (item as any).color,
-    }));
-    const cartSignature = buildCartSignature(orderItems);
+      const paymentMethod = "galio";
+      const shipping = shippingQuote.cost;
+      const total = subtotal + shipping;
 
-    const { order, isReuse } = await resolvePendingOrder({
-      sessionId,
-      cartSignature,
-      orderItems,
-      subtotal,
-      shipping,
-      total,
-      deliveryMethod,
-      paymentMethod,
-      shippingDetails,
-    });
+      const shippingDetails = {
+        ...req.body.shippingDetails,
+        address: {
+          ...req.body.shippingDetails.address,
+          postal_code: postalCode,
+          ...(deliveryMethod === "pickup"
+            ? {
+                line1: PICKUP_POINT.address,
+                city: "Ledesma",
+                state: "Jujuy",
+                country: req.body.shippingDetails.address.country || "AR",
+              }
+            : {}),
+        },
+      };
 
-    if (!isReuse) {
-      const { notifyNewOrder } = await import('../utils/notifications');
-      notifyNewOrder(order._id.toString()).catch(console.error);
-    }
-
-    const galioItems = [
-      ...cart.items.map((item) => ({
-        title: (item.productId as any)?.name || 'Product',
+      const orderItems: CheckoutOrderItem[] = cart.items.map((item) => ({
+        productId: (item.productId as any)._id || item.productId,
         quantity: item.quantity,
-        unitPrice: item.price,
-        currencyId: 'ARS',
-      })),
-      ...(shipping > 0 ? [{
-        title: 'Envío',
-        quantity: 1,
-        unitPrice: shipping,
-        currencyId: 'ARS',
-      }] : []),
-    ];
+        price: item.price,
+        size: (item as any).size,
+        color: (item as any).color,
+      }));
+      const cartSignature = buildCartSignature(orderItems);
 
-    const paymentUrl = await attachGalioPaymentLink(order, galioItems, deliveryMethod);
+      const { order, isReuse } = await resolvePendingOrder({
+        sessionId,
+        cartSignature,
+        orderItems,
+        subtotal,
+        shipping,
+        total,
+        deliveryMethod,
+        paymentMethod,
+        shippingDetails,
+      });
 
-    res.status(200).json({
-      orderId: order._id,
-      sessionId,
-      success: true,
-      message: isReuse ? 'Pending order reused' : 'Order created successfully',
-      reused: isReuse,
-      shipping,
-      shippingLabel: shippingQuote.label,
-      deliveryMethod,
-      paymentMethod,
-      paymentUrl,
-      pickupPoint: deliveryMethod === 'pickup' ? PICKUP_POINT : undefined,
-    });
-  } catch (error) {
-    console.error('Checkout error:', error);
-    res.status(500).json({ error: 'Failed to create checkout session' });
-  }
-});
+      if (!isReuse) {
+        const { notifyNewOrder } = await import("../utils/notifications");
+        notifyNewOrder(order._id.toString()).catch(console.error);
+      }
+
+      const galioItems = [
+        ...cart.items.map((item) => ({
+          title: (item.productId as any)?.name || "Product",
+          quantity: item.quantity,
+          unitPrice: item.price,
+          currencyId: "ARS",
+        })),
+        ...(shipping > 0
+          ? [
+              {
+                title: "Envío",
+                quantity: 1,
+                unitPrice: shipping,
+                currencyId: "ARS",
+              },
+            ]
+          : []),
+      ];
+
+      const paymentUrl = await attachGalioPaymentLink(
+        order,
+        galioItems,
+        deliveryMethod,
+      );
+
+      res.status(200).json({
+        orderId: order._id,
+        sessionId,
+        success: true,
+        message: isReuse
+          ? "Pending order reused"
+          : "Order created successfully",
+        reused: isReuse,
+        shipping,
+        shippingLabel: shippingQuote.label,
+        deliveryMethod,
+        paymentMethod,
+        paymentUrl,
+        pickupPoint: deliveryMethod === "pickup" ? PICKUP_POINT : undefined,
+      });
+    } catch (error) {
+      console.error("Checkout error:", error);
+      res.status(500).json({ error: "Failed to create checkout session" });
+    }
+  },
+);
 
 async function buildGalioItemsFromOrder(order: IOrder) {
-  await order.populate('items.productId', 'name');
+  await order.populate("items.productId", "name");
   const galioItems = order.items.map((item) => ({
-    title: (item.productId as { name?: string })?.name || 'Product',
+    title: (item.productId as { name?: string })?.name || "Product",
     quantity: item.quantity,
     unitPrice: item.price,
-    currencyId: 'ARS',
+    currencyId: "ARS",
   }));
 
   if (order.shipping > 0) {
     galioItems.push({
-      title: 'Envío',
+      title: "Envío",
       quantity: 1,
       unitPrice: order.shipping,
-      currencyId: 'ARS',
+      currencyId: "ARS",
     });
   }
 
@@ -290,16 +340,18 @@ async function buildGalioItemsFromOrder(order: IOrder) {
 }
 
 // GET /api/checkout/pending-order - Active pending Galio order for this session
-router.get('/pending-order', async (req: Request, res: Response) => {
+router.get("/pending-order", async (req: Request, res: Response) => {
   try {
     const sessionId = ensureSessionCookie(req, res);
     const order = await Order.findOne({
       sessionId,
-      status: 'pending',
-      $or: [{ paymentMethod: 'galio' }, { paymentMethod: { $exists: false } }],
+      status: "pending",
+      $or: [{ paymentMethod: "galio" }, { paymentMethod: { $exists: false } }],
     })
       .sort({ createdAt: -1 })
-      .select('items subtotal shipping total paymentUrl createdAt status deliveryMethod');
+      .select(
+        "items subtotal shipping total paymentUrl createdAt status deliveryMethod",
+      );
 
     if (!order || !isPendingGalioOrderActive(order)) {
       res.json({ pending: null });
@@ -307,7 +359,10 @@ router.get('/pending-order', async (req: Request, res: Response) => {
     }
 
     const cart = await getOrCreateCart(sessionId);
-    await cart.populate('items.productId', 'name images inventoryMode stock colors sizeVariants');
+    await cart.populate(
+      "items.productId",
+      "name images inventoryMode stock colors sizeVariants",
+    );
 
     const cartItems: CheckoutOrderItem[] = cart.items.map((item) => ({
       productId: (item.productId as { _id?: unknown })._id || item.productId,
@@ -317,7 +372,9 @@ router.get('/pending-order', async (req: Request, res: Response) => {
       color: (item as { color?: string }).color,
     }));
     const cartSignature = buildCartSignature(cartItems);
-    const orderSignature = buildCartSignature(order.items as CheckoutOrderItem[]);
+    const orderSignature = buildCartSignature(
+      order.items as CheckoutOrderItem[],
+    );
     const cartSubtotal = calculateCartTotal(cart.items);
     const matchesCart =
       cart.items.length > 0 &&
@@ -343,74 +400,77 @@ router.get('/pending-order', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    console.error('Pending order error:', error);
-    res.status(500).json({ error: 'Failed to fetch pending order' });
+    console.error("Pending order error:", error);
+    res.status(500).json({ error: "Failed to fetch pending order" });
   }
 });
 
 // POST /api/checkout/order/:orderId/resume-payment - Regenerate Galio link for pending order
-router.post('/order/:orderId/resume-payment', async (req: Request, res: Response) => {
-  try {
-    const sessionId = ensureSessionCookie(req, res);
-    const order = await Order.findById(req.params.orderId);
+router.post(
+  "/order/:orderId/resume-payment",
+  async (req: Request, res: Response) => {
+    try {
+      const sessionId = ensureSessionCookie(req, res);
+      const order = await Order.findById(req.params.orderId);
 
-    if (!order || order.sessionId !== sessionId) {
-      res.status(404).json({ error: 'Order not found' });
-      return;
-    }
-
-    if (order.status === 'paid') {
-      res.json({ status: 'paid', paymentUrl: order.paymentUrl });
-      return;
-    }
-
-    if (!isPendingGalioOrderActive(order)) {
-      if (order.status === 'pending') {
-        await markOrderAsFailed(order, { reason: 'expired' });
+      if (!order || order.sessionId !== sessionId) {
+        res.status(404).json({ error: "Order not found" });
+        return;
       }
 
-      res.status(410).json({
-        error: 'Payment window expired',
-        status: order.status,
-        reason: order.paymentFailureReason ?? 'expired',
+      if (order.status === "paid") {
+        res.json({ status: "paid", paymentUrl: order.paymentUrl });
+        return;
+      }
+
+      if (!isPendingGalioOrderActive(order)) {
+        if (order.status === "pending") {
+          await markOrderAsFailed(order, { reason: "expired" });
+        }
+
+        res.status(410).json({
+          error: "Payment window expired",
+          status: order.status,
+          reason: order.paymentFailureReason ?? "expired",
+        });
+        return;
+      }
+
+      const galioItems = await buildGalioItemsFromOrder(order);
+      const paymentUrl = await attachGalioPaymentLink(
+        order,
+        galioItems,
+        order.deliveryMethod || "shipping",
+      );
+
+      res.json({
+        status: "pending",
+        orderId: order._id,
+        paymentUrl,
+        expiresAt: getPendingOrderExpiresAt(order.createdAt).toISOString(),
       });
-      return;
+    } catch (error) {
+      console.error("Resume payment error:", error);
+      res.status(500).json({ error: "Failed to resume payment" });
     }
-
-    const galioItems = await buildGalioItemsFromOrder(order);
-    const paymentUrl = await attachGalioPaymentLink(
-      order,
-      galioItems,
-      order.deliveryMethod || 'shipping',
-    );
-
-    res.json({
-      status: 'pending',
-      orderId: order._id,
-      paymentUrl,
-      expiresAt: getPendingOrderExpiresAt(order.createdAt).toISOString(),
-    });
-  } catch (error) {
-    console.error('Resume payment error:', error);
-    res.status(500).json({ error: 'Failed to resume payment' });
-  }
-});
+  },
+);
 
 // GET /api/checkout/order/:orderId/status - Public status for success page (session-bound)
-router.get('/order/:orderId/status', async (req: Request, res: Response) => {
+router.get("/order/:orderId/status", async (req: Request, res: Response) => {
   try {
     const sessionId = ensureSessionCookie(req, res);
     const order = await Order.findById(req.params.orderId).select(
-      'status sessionId deliveryMethod total paymentFailureReason paymentUrl paymentMethod createdAt',
+      "status sessionId deliveryMethod total paymentFailureReason paymentUrl paymentMethod createdAt",
     );
 
     if (!order || order.sessionId !== sessionId) {
-      res.status(404).json({ error: 'Order not found' });
+      res.status(404).json({ error: "Order not found" });
       return;
     }
 
     const timeLeftMs =
-      order.status === 'pending' && order.paymentMethod === 'galio'
+      order.status === "pending" && order.paymentMethod === "galio"
         ? getPendingOrderTimeLeftMs(order.createdAt)
         : 0;
 
@@ -422,78 +482,93 @@ router.get('/order/:orderId/status', async (req: Request, res: Response) => {
       total: order.total,
       paymentUrl: order.paymentUrl,
       expiresAt:
-        order.status === 'pending' ? getPendingOrderExpiresAt(order.createdAt).toISOString() : undefined,
+        order.status === "pending"
+          ? getPendingOrderExpiresAt(order.createdAt).toISOString()
+          : undefined,
       secondsRemaining: timeLeftMs > 0 ? Math.ceil(timeLeftMs / 1000) : 0,
-      canResume: order.status === 'pending' && timeLeftMs > 0,
+      canResume: order.status === "pending" && timeLeftMs > 0,
     });
   } catch (error) {
-    console.error('Order status error:', error);
-    res.status(500).json({ error: 'Failed to fetch order status' });
+    console.error("Order status error:", error);
+    res.status(500).json({ error: "Failed to fetch order status" });
   }
 });
 
 // POST /api/checkout/order/:orderId/confirm-payment - Sync payment after Galio redirect
-router.post('/order/:orderId/confirm-payment', async (req: Request, res: Response) => {
-  try {
-    const sessionId = ensureSessionCookie(req, res);
-    const order = await Order.findById(req.params.orderId);
+router.post(
+  "/order/:orderId/confirm-payment",
+  async (req: Request, res: Response) => {
+    try {
+      const sessionId = ensureSessionCookie(req, res);
+      const order = await Order.findById(req.params.orderId);
 
-    if (!order || order.sessionId !== sessionId) {
-      res.status(404).json({ error: 'Order not found' });
-      return;
-    }
-
-    if (order.status === 'paid') {
-      res.json({ status: 'paid', alreadyProcessed: true });
-      return;
-    }
-
-    const paymentId = (req.body?.paymentId as string | undefined)
-      || (typeof order.galioPaymentId === 'string' && !order.galioPaymentId.startsWith('http')
-        ? order.galioPaymentId
-        : undefined);
-
-    if (paymentId) {
-      const payment = await getPayment(paymentId);
-      if (isGalioPaymentApproved(payment.status)) {
-        const result = await markOrderAsPaid(order, { galioPaymentId: paymentId });
-        res.json({ status: 'paid', alreadyProcessed: result.alreadyProcessed });
+      if (!order || order.sessionId !== sessionId) {
+        res.status(404).json({ error: "Order not found" });
         return;
       }
 
-      if (isGalioPaymentFailed(payment.status)) {
-        await markOrderAsFailed(order, { reason: getPaymentFailureReason(payment.status) });
-        res.json({ status: 'failed', reason: order.paymentFailureReason });
+      if (order.status === "paid") {
+        await sendOrderConfirmationEmailIfNeeded(order._id.toString());
+        res.json({ status: "paid", alreadyProcessed: true });
         return;
       }
-    }
 
-    res.json({ status: order.status, reason: order.paymentFailureReason });
-  } catch (error) {
-    console.error('Confirm payment error:', error);
-    res.status(500).json({ error: 'Failed to confirm payment' });
-  }
-});
+      const paymentId =
+        (req.body?.paymentId as string | undefined) ||
+        (typeof order.galioPaymentId === "string" &&
+        !order.galioPaymentId.startsWith("http")
+          ? order.galioPaymentId
+          : undefined);
+
+      if (paymentId) {
+        const payment = await getPayment(paymentId);
+        if (isGalioPaymentApproved(payment.status)) {
+          const result = await markOrderAsPaid(order, {
+            galioPaymentId: paymentId,
+          });
+          res.json({
+            status: "paid",
+            alreadyProcessed: result.alreadyProcessed,
+          });
+          return;
+        }
+
+        if (isGalioPaymentFailed(payment.status)) {
+          await markOrderAsFailed(order, {
+            reason: getPaymentFailureReason(payment.status),
+          });
+          res.json({ status: "failed", reason: order.paymentFailureReason });
+          return;
+        }
+      }
+
+      res.json({ status: order.status, reason: order.paymentFailureReason });
+    } catch (error) {
+      console.error("Confirm payment error:", error);
+      res.status(500).json({ error: "Failed to confirm payment" });
+    }
+  },
+);
 
 // POST /api/checkout/webhook - Handle Stripe webhook
-router.post('/webhook', async (req: Request, res: Response) => {
-  const sig = req.headers['stripe-signature'] as string;
+router.post("/webhook", async (req: Request, res: Response) => {
+  const sig = req.headers["stripe-signature"] as string;
   let event: Stripe.Event;
 
   try {
     event = stripe.webhooks.constructEvent(
       req.body,
       sig,
-      process.env.STRIPE_WEBHOOK_SECRET || ''
+      process.env.STRIPE_WEBHOOK_SECRET || "",
     );
   } catch (err) {
-    console.error('Webhook signature verification failed:', err);
-    res.status(400).json({ error: 'Invalid signature' });
+    console.error("Webhook signature verification failed:", err);
+    res.status(400).json({ error: "Invalid signature" });
     return;
   }
 
   // Handle the event
-  if (event.type === 'checkout.session.completed') {
+  if (event.type === "checkout.session.completed") {
     const stripeSession = event.data.object as Stripe.Checkout.Session;
 
     try {
@@ -501,7 +576,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       const sessionId = stripeSession.metadata?.sessionId;
 
       if (!sessionId) {
-        throw new Error('No session ID in metadata');
+        throw new Error("No session ID in metadata");
       }
 
       // Get cart directly (don't create new)
@@ -513,21 +588,27 @@ router.post('/webhook', async (req: Request, res: Response) => {
         return;
       }
 
-// Check stock availability before creating order
-       await cart.populate('items.productId', 'name inventoryMode stock colors sizeVariants');
-       for (const item of cart.items) {
-         const product = item.productId as any;
-         try {
-           assertStockAvailable(product, item.quantity, {
-             size: (item as any).size,
-             color: (item as any).color,
-           });
-         } catch (stockError) {
-           console.error(`Insufficient stock for ${product.name} (ID: ${product._id}):`, stockError);
-           res.json({ received: true });
-           return;
-         }
-       }
+      // Check stock availability before creating order
+      await cart.populate(
+        "items.productId",
+        "name inventoryMode stock colors sizeVariants",
+      );
+      for (const item of cart.items) {
+        const product = item.productId as any;
+        try {
+          assertStockAvailable(product, item.quantity, {
+            size: (item as any).size,
+            color: (item as any).color,
+          });
+        } catch (stockError) {
+          console.error(
+            `Insufficient stock for ${product.name} (ID: ${product._id}):`,
+            stockError,
+          );
+          res.json({ received: true });
+          return;
+        }
+      }
 
       const total = calculateCartTotal(cart.items);
       const subtotal = total; // Use cart total as subtotal
@@ -536,21 +617,23 @@ router.post('/webhook', async (req: Request, res: Response) => {
       // Extract shipping details from Stripe session
       const customerDetails = stripeSession.customer_details;
       const shippingDetails = {
-        name: customerDetails?.name || '',
-        email: customerDetails?.email || '',
+        name: customerDetails?.name || "",
+        email: customerDetails?.email || "",
         address: {
-          line1: customerDetails?.address?.line1 || '',
-          line2: customerDetails?.address?.line2 || '',
-          city: customerDetails?.address?.city || '',
-          state: customerDetails?.address?.state || '',
-          postal_code: customerDetails?.address?.postal_code || '',
-          country: customerDetails?.address?.country || '',
+          line1: customerDetails?.address?.line1 || "",
+          line2: customerDetails?.address?.line2 || "",
+          city: customerDetails?.address?.city || "",
+          state: customerDetails?.address?.state || "",
+          postal_code: customerDetails?.address?.postal_code || "",
+          country: customerDetails?.address?.country || "",
         },
       };
 
       const paymentIntentId = stripeSession.payment_intent as string;
       if (paymentIntentId) {
-        const existingOrder = await Order.findOne({ stripePaymentIntentId: paymentIntentId });
+        const existingOrder = await Order.findOne({
+          stripePaymentIntentId: paymentIntentId,
+        });
         if (existingOrder) {
           res.json({ received: true });
           return;
@@ -560,7 +643,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       // Create order (no transactions for standalone MongoDB)
       const order = await Order.create({
         sessionId,
-        items: cart.items.map(item => ({
+        items: cart.items.map((item) => ({
           productId: (item.productId as any)._id || item.productId,
           quantity: item.quantity,
           price: item.price,
@@ -570,29 +653,31 @@ router.post('/webhook', async (req: Request, res: Response) => {
         subtotal,
         shipping,
         total: subtotal + shipping,
-        status: 'paid',
+        status: "paid",
         stripePaymentIntentId: paymentIntentId,
         shippingDetails,
       });
 
-// Deduct stock atomically after payment is confirmed
+      // Deduct stock atomically after payment is confirmed
       await deductStockForItems(cart.items as any);
 
       // Mark cart as converted
       await markCartAsConverted(sessionId);
 
-      console.log(`Order ${order._id} created from session ${stripeSession.id}`);
+      console.log(
+        `Order ${order._id} created from session ${stripeSession.id}`,
+      );
 
       // Send order confirmation email
       try {
-        await sendOrderConfirmationEmail(order, (order._id as any).toString());
+        await sendOrderConfirmationEmailIfNeeded((order._id as any).toString());
       } catch (emailError) {
-        console.error('Failed to send confirmation email:', emailError);
+        console.error("Failed to send confirmation email:", emailError);
       }
     } catch (error) {
-      console.error('Error creating order from webhook:', error);
+      console.error("Error creating order from webhook:", error);
     }
-  } else if (event.type === 'checkout.session.expired') {
+  } else if (event.type === "checkout.session.expired") {
     // Handle expired sessions if needed
     console.log(`Session expired: ${event.data.object.id}`);
   }

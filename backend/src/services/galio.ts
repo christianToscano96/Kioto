@@ -1,4 +1,6 @@
 import Settings from '../models/Settings';
+import { resolveConfiguredValue } from '../utils/resolveSetting';
+import { resolveIncomingSecret } from '../utils/mergeSettings';
 
 export interface GalioPayment {
   id: string;
@@ -42,8 +44,14 @@ async function getGalioSettings(): Promise<GalioRuntimeConfig> {
 
   const settings = await Settings.findOne().select('payments.galio');
 
-  const apiKey = settings?.payments?.galio?.apiKey || process.env.GALIO_API_KEY;
-  const clientId = settings?.payments?.galio?.clientId || process.env.GALIO_CLIENT_ID;
+  const apiKey = resolveConfiguredValue(
+    settings?.payments?.galio?.apiKey,
+    process.env.GALIO_API_KEY,
+  );
+  const clientId = resolveConfiguredValue(
+    settings?.payments?.galio?.clientId,
+    process.env.GALIO_CLIENT_ID,
+  );
   const sandbox =
     typeof settings?.payments?.galio?.sandbox === 'boolean'
       ? settings.payments.galio.sandbox
@@ -74,14 +82,14 @@ export async function testGalioConnection(
 ): Promise<{ ok: true; sandbox: boolean; message: string }> {
   const settings = await Settings.findOne().select('payments.galio').lean();
 
-  const apiKey =
-    overrides?.apiKey?.trim() ||
-    settings?.payments?.galio?.apiKey ||
-    process.env.GALIO_API_KEY;
-  const clientId =
-    overrides?.clientId?.trim() ||
-    settings?.payments?.galio?.clientId ||
-    process.env.GALIO_CLIENT_ID;
+  const apiKey = resolveConfiguredValue(
+    resolveIncomingSecret(overrides?.apiKey, settings?.payments?.galio?.apiKey),
+    process.env.GALIO_API_KEY,
+  );
+  const clientId = resolveConfiguredValue(
+    overrides?.clientId?.trim(),
+    resolveConfiguredValue(settings?.payments?.galio?.clientId, process.env.GALIO_CLIENT_ID),
+  );
   const sandbox =
     typeof overrides?.sandbox === 'boolean'
       ? overrides.sandbox

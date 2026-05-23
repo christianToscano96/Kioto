@@ -1,4 +1,4 @@
-import { X, Loader2 } from '@/components/icons';
+import { X, Loader2 } from "@/components/icons";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -21,7 +21,7 @@ import { OrderSummary } from "@/components/checkout/OrderSummary";
 import { PendingPaymentBanner } from "@/components/checkout/PendingPaymentBanner";
 import { api } from "@/lib/api";
 import { showToast } from "@/components/ui/Toast";
-import { BackButton } from '@/components/ui/BackButton';
+import { BackButton } from "@/components/ui/BackButton";
 import {
   ARGENTINE_PROVINCES,
   PICKUP_POINT,
@@ -32,7 +32,7 @@ import {
   isLocalPostalCode,
   type ArgentineProvinceId,
   type DeliveryMethod,
-} from '@shared/index';
+} from "@shared/index";
 
 type CheckoutStep = "shipping" | "payment" | "review";
 
@@ -56,7 +56,7 @@ const initialFormData: CheckoutFormData = {
     line1: "",
     line2: "",
     city: "",
-    state: "Mendoza",
+    state: "Jujuy",
     postal_code: "",
     country: "AR",
   },
@@ -68,14 +68,14 @@ function validateShippingStep(
   provinceId: ArgentineProvinceId,
   shippingQuote: ReturnType<typeof calculateShipping>,
 ): string | null {
-  if (!formData.email.trim()) return 'Ingresá tu email';
-  if (!formData.name.trim()) return 'Ingresá tu nombre';
-  if (!formData.address.postal_code.trim()) return 'Ingresá tu código postal';
+  if (!formData.email.trim()) return "Ingresá tu email";
+  if (!formData.name.trim()) return "Ingresá tu nombre";
+  if (!formData.address.postal_code.trim()) return "Ingresá tu código postal";
 
-  if (deliveryMethod === 'shipping') {
-    if (!formData.address.line1.trim()) return 'Ingresá tu dirección';
-    if (!formData.address.city.trim()) return 'Ingresá tu ciudad';
-    if (!provinceId) return 'Seleccioná tu provincia';
+  if (deliveryMethod === "shipping") {
+    if (!formData.address.line1.trim()) return "Ingresá tu dirección";
+    if (!formData.address.city.trim()) return "Ingresá tu ciudad";
+    if (!provinceId) return "Seleccioná tu provincia";
     if (!shippingQuote.isValid) return shippingQuote.label;
   }
 
@@ -90,35 +90,45 @@ export function CheckoutPage() {
 
   const [step, setStep] = useState<CheckoutStep>("shipping");
   const [formData, setFormData] = useState<CheckoutFormData>(initialFormData);
-  const [provinceId, setProvinceId] = useState<ArgentineProvinceId>('mendoza');
-  const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>('shipping');
+  const [provinceId, setProvinceId] = useState<ArgentineProvinceId>("mendoza");
+  const [deliveryMethod, setDeliveryMethod] =
+    useState<DeliveryMethod>("shipping");
   const [error, setError] = useState<string | null>(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [storeTerms, setStoreTerms] = useState<string>("");
   const [showTerms, setShowTerms] = useState(false);
-  const [submitStatus, setSubmitStatus] = useState<'idle' | 'creating' | 'redirecting'>('idle');
+  const [submitStatus, setSubmitStatus] = useState<
+    "idle" | "creating" | "redirecting"
+  >("idle");
   const provinceLockedByUser = useRef(false);
 
   useEffect(() => {
     const resetSubmitState = () => {
-      setSubmitStatus((current) => (current === 'redirecting' ? 'idle' : current));
+      setSubmitStatus((current) =>
+        current === "redirecting" ? "idle" : current,
+      );
     };
 
-    window.addEventListener('pageshow', resetSubmitState);
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
+    window.addEventListener("pageshow", resetSubmitState);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
         resetSubmitState();
       }
     });
 
     return () => {
-      window.removeEventListener('pageshow', resetSubmitState);
+      window.removeEventListener("pageshow", resetSubmitState);
     };
   }, []);
 
   const isLocal = isLocalPostalCode(formData.address.postal_code);
   const shippingQuote = useMemo(
-    () => calculateShipping(formData.address.postal_code, deliveryMethod, provinceId),
+    () =>
+      calculateShipping(
+        formData.address.postal_code,
+        deliveryMethod,
+        provinceId,
+      ),
     [formData.address.postal_code, deliveryMethod, provinceId],
   );
   const shipping = shippingQuote.cost;
@@ -139,17 +149,20 @@ export function CheckoutPage() {
   }, [formData.address.postal_code]);
 
   useEffect(() => {
-    if (!isLocal && deliveryMethod === 'pickup') {
-      setDeliveryMethod('shipping');
+    if (!isLocal && deliveryMethod === "pickup") {
+      setDeliveryMethod("shipping");
     }
   }, [isLocal, deliveryMethod]);
 
   useEffect(() => {
-    api.get('/settings').then((res) => {
-      if (res.data?.policies?.terms) {
-        setStoreTerms(res.data.policies.terms);
-      }
-    }).catch(() => {});
+    api
+      .get("/settings")
+      .then((res) => {
+        if (res.data?.policies?.terms) {
+          setStoreTerms(res.data.policies.terms);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -173,7 +186,9 @@ export function CheckoutPage() {
     handleInputChange("address.postal_code", value);
   };
 
-  const handleProvinceChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleProvinceChange = (
+    event: React.ChangeEvent<HTMLSelectElement>,
+  ) => {
     provinceLockedByUser.current = true;
     const nextProvinceId = event.target.value as ArgentineProvinceId;
     setProvinceId(nextProvinceId);
@@ -185,33 +200,38 @@ export function CheckoutPage() {
 
   const handleNext = () => {
     if (step === "shipping") {
-      const validationError = validateShippingStep(formData, deliveryMethod, provinceId, shippingQuote);
+      const validationError = validateShippingStep(
+        formData,
+        deliveryMethod,
+        provinceId,
+        shippingQuote,
+      );
       if (validationError) {
-        showToast({ type: 'error', title: validationError });
+        showToast({ type: "error", title: validationError });
         return;
       }
       setStep("payment");
     } else if (step === "payment") {
       setStep("review");
     }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleBack = () => {
     if (step === "payment") setStep("shipping");
     else if (step === "review") setStep("payment");
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    setSubmitStatus('creating');
+    setSubmitStatus("creating");
     setError(null);
 
     try {
       const response = await api.post("/checkout", {
         deliveryMethod,
-        paymentMethod: 'galio',
+        paymentMethod: "galio",
         shippingDetails: formData,
       });
 
@@ -221,27 +241,29 @@ export function CheckoutPage() {
         throw new Error(data.error || "Error al crear la orden");
       }
 
-      showToast({ type: 'success', title: 'Orden creada correctamente' });
+      showToast({ type: "success", title: "Orden creada correctamente" });
 
-      if (typeof data.sessionId === 'string') {
+      if (typeof data.sessionId === "string") {
         useCartStore.getState().setSessionId(data.sessionId);
       }
 
       if (data.orderId) {
-        sessionStorage.setItem('kioto:pending-order-id', String(data.orderId));
+        sessionStorage.setItem("kioto:pending-order-id", String(data.orderId));
       }
 
       if (data.paymentUrl) {
-        setSubmitStatus('redirecting');
+        setSubmitStatus("redirecting");
         window.location.href = data.paymentUrl;
       } else {
-        navigate(`/checkout/success?orderId=${data.orderId}&delivery=${deliveryMethod}`);
+        navigate(
+          `/checkout/success?orderId=${data.orderId}&delivery=${deliveryMethod}`,
+        );
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Ocurrió un error";
       setError(errorMsg);
-      showToast({ type: 'error', title: errorMsg });
-      setSubmitStatus('idle');
+      showToast({ type: "error", title: errorMsg });
+      setSubmitStatus("idle");
     }
   };
 
@@ -295,7 +317,11 @@ export function CheckoutPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-20 pb-28 lg:pb-20">
         <div className="mb-16 mt-8 animate-fade-in">
           <div className="text-center mt-6">
-            <BackButton label="Volver" showLabelOnMobile={true} page="checkout" />
+            <BackButton
+              label="Volver"
+              showLabelOnMobile={true}
+              page="checkout"
+            />
           </div>
           <h1 className="font-serif text-4xl md:text-5xl lg:text-6xl tracking-tight mb-12">
             Finalizar compra
@@ -308,7 +334,10 @@ export function CheckoutPage() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 items-start">
           <div className="lg:col-span-7 space-y-12">
             {step === "shipping" && (
-              <form onSubmit={(event) => event.preventDefault()} className="animate-fade-in space-y-8">
+              <form
+                onSubmit={(event) => event.preventDefault()}
+                className="animate-fade-in space-y-8"
+              >
                 <FormSection title="Información de contacto">
                   <div className="space-y-6">
                     <FloatingLabelInput
@@ -316,12 +345,16 @@ export function CheckoutPage() {
                       type="email"
                       placeholder="tu@email.com"
                       value={formData.email}
-                      onChange={(event) => handleInputChange("email", event.target.value)}
+                      onChange={(event) =>
+                        handleInputChange("email", event.target.value)
+                      }
                     />
                     <FloatingLabelInput
                       label="Nombre completo"
                       value={formData.name}
-                      onChange={(event) => handleInputChange("name", event.target.value)}
+                      onChange={(event) =>
+                        handleInputChange("name", event.target.value)
+                      }
                     />
                   </div>
                 </FormSection>
@@ -331,11 +364,16 @@ export function CheckoutPage() {
                     label="Código postal"
                     placeholder="4512, Y4512 o 1406"
                     value={formData.address.postal_code}
-                    onChange={(event) => handlePostalCodeChange(event.target.value)}
+                    onChange={(event) =>
+                      handlePostalCodeChange(event.target.value)
+                    }
                   />
                   {formData.address.postal_code && (
-                    <p className={`mt-3 text-sm ${shippingQuote.isValid ? 'text-on-surface-variant' : 'text-red-600'}`}>
-                      {shippingQuote.label} · {formatShippingQuote(shippingQuote)}
+                    <p
+                      className={`mt-3 text-sm ${shippingQuote.isValid ? "text-on-surface-variant" : "text-red-600"}`}
+                    >
+                      {shippingQuote.label} ·{" "}
+                      {formatShippingQuote(shippingQuote)}
                     </p>
                   )}
                 </FormSection>
@@ -345,35 +383,45 @@ export function CheckoutPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <button
                         type="button"
-                        onClick={() => setDeliveryMethod('shipping')}
+                        onClick={() => setDeliveryMethod("shipping")}
                         className={`text-left p-4 rounded-xl border transition-all ${
-                          deliveryMethod === 'shipping'
-                            ? 'border-primary bg-primary-container/15 ring-1 ring-primary/20'
-                            : 'border-outline-variant/40 hover:border-outline-variant'
+                          deliveryMethod === "shipping"
+                            ? "border-primary bg-primary-container/15 ring-1 ring-primary/20"
+                            : "border-outline-variant/40 hover:border-outline-variant"
                         }`}
                       >
-                        <p className="font-label text-xs uppercase tracking-wider mb-1">Envío a domicilio</p>
-                        <p className="text-sm text-on-surface-variant">Gratis en CP 4512</p>
+                        <p className="font-label text-xs uppercase tracking-wider mb-1">
+                          Envío a domicilio
+                        </p>
+                        <p className="text-sm text-on-surface-variant">
+                          Gratis en CP 4512
+                        </p>
                       </button>
                       <button
                         type="button"
-                        onClick={() => setDeliveryMethod('pickup')}
+                        onClick={() => setDeliveryMethod("pickup")}
                         className={`text-left p-4 rounded-xl border transition-all ${
-                          deliveryMethod === 'pickup'
-                            ? 'border-primary bg-primary-container/15 ring-1 ring-primary/20'
-                            : 'border-outline-variant/40 hover:border-outline-variant'
+                          deliveryMethod === "pickup"
+                            ? "border-primary bg-primary-container/15 ring-1 ring-primary/20"
+                            : "border-outline-variant/40 hover:border-outline-variant"
                         }`}
                       >
-                        <p className="font-label text-xs uppercase tracking-wider mb-1">Retiro en punto</p>
-                        <p className="text-sm text-on-surface-variant">{PICKUP_POINT.name}</p>
+                        <p className="font-label text-xs uppercase tracking-wider mb-1">
+                          Retiro en punto
+                        </p>
+                        <p className="text-sm text-on-surface-variant">
+                          {PICKUP_POINT.name}
+                        </p>
                       </button>
                     </div>
                   </FormSection>
                 )}
 
-                {deliveryMethod === 'pickup' ? (
+                {deliveryMethod === "pickup" ? (
                   <div className="rounded-xl border border-outline-variant/30 bg-surface-container p-5 text-sm text-on-surface-variant space-y-1">
-                    <p className="font-medium text-on-surface">{PICKUP_POINT.name}</p>
+                    <p className="font-medium text-on-surface">
+                      {PICKUP_POINT.name}
+                    </p>
                     <p>{PICKUP_POINT.address}</p>
                     <p>{PICKUP_POINT.hours}</p>
                     <p className="text-primary pt-2">{PICKUP_POINT.notes}</p>
@@ -386,13 +434,20 @@ export function CheckoutPage() {
                           label="Dirección"
                           placeholder="Calle y número"
                           value={formData.address.line1}
-                          onChange={(event) => handleInputChange("address.line1", event.target.value)}
+                          onChange={(event) =>
+                            handleInputChange(
+                              "address.line1",
+                              event.target.value,
+                            )
+                          }
                         />
                       </div>
                       <FloatingLabelInput
                         label="Ciudad"
                         value={formData.address.city}
-                        onChange={(event) => handleInputChange("address.city", event.target.value)}
+                        onChange={(event) =>
+                          handleInputChange("address.city", event.target.value)
+                        }
                       />
                       <FloatingLabelSelect
                         label="Provincia"
@@ -425,19 +480,23 @@ export function CheckoutPage() {
             )}
 
             {step === "payment" && (
-              <form onSubmit={(event) => event.preventDefault()} className="animate-fade-in space-y-8">
+              <form
+                onSubmit={(event) => event.preventDefault()}
+                className="animate-fade-in space-y-8"
+              >
                 <FormSection title="Método de pago">
                   <div className="p-6 border border-primary rounded-xl bg-primary-container/10">
                     <h3 className="font-serif text-lg font-bold text-on-surface mb-2">
                       Transferencia vía GalioPay
                     </h3>
                     <p className="text-sm text-on-surface-variant">
-                      Pagás por transferencia bancaria en una página segura de GalioPay.
-                      {isLocal && deliveryMethod === 'pickup'
-                        ? ' Después del pago, retirás en nuestro punto de entrega.'
+                      Pagás por transferencia bancaria en una página segura de
+                      GalioPay.
+                      {isLocal && deliveryMethod === "pickup"
+                        ? " Después del pago, retirás en nuestro punto de entrega."
                         : isLocal
-                          ? ' Envío local gratis en CP 4512.'
-                          : ''}
+                          ? " Envío local gratis en CP 4512."
+                          : ""}
                     </p>
                   </div>
                 </FormSection>
@@ -458,17 +517,24 @@ export function CheckoutPage() {
             )}
 
             {step === "review" && (
-              <form onSubmit={handleSubmit} className="animate-fade-in space-y-8">
+              <form
+                onSubmit={handleSubmit}
+                className="animate-fade-in space-y-8"
+              >
                 <FormSection title="Resumen del pedido">
                   <div className="space-y-3 text-sm">
                     <div className="flex justify-between py-2 border-b border-outline-variant/30">
                       <span>Contacto</span>
-                      <span className="text-right">{formData.name}<br />{formData.email}</span>
+                      <span className="text-right">
+                        {formData.name}
+                        <br />
+                        {formData.email}
+                      </span>
                     </div>
                     <div className="flex justify-between py-2 border-b border-outline-variant/30">
                       <span>Entrega</span>
                       <span className="text-right max-w-[60%]">
-                        {deliveryMethod === 'pickup'
+                        {deliveryMethod === "pickup"
                           ? `Retiro · ${PICKUP_POINT.address}`
                           : `${formData.address.line1}, ${formData.address.city}`}
                       </span>
@@ -497,12 +563,14 @@ export function CheckoutPage() {
                     <input
                       type="checkbox"
                       checked={termsAccepted}
-                      onChange={(event) => setTermsAccepted(event.target.checked)}
+                      onChange={(event) =>
+                        setTermsAccepted(event.target.checked)
+                      }
                       className="w-5 h-5 mt-0.5 rounded border-outline focus:ring-2 focus:ring-primary"
                       required
                     />
                     <span className="text-sm text-on-surface">
-                      Acepto los{' '}
+                      Acepto los{" "}
                       <button
                         type="button"
                         onClick={() => setShowTerms(true)}
@@ -528,12 +596,15 @@ export function CheckoutPage() {
                   >
                     Volver
                   </button>
-                  <PrimaryButton type="submit" disabled={submitStatus !== 'idle' || !termsAccepted}>
-                    {submitStatus === 'creating'
-                      ? 'Creando orden...'
-                      : submitStatus === 'redirecting'
-                        ? 'Redirigiendo a GalioPay...'
-                        : 'Confirmar y pagar con GalioPay'}
+                  <PrimaryButton
+                    type="submit"
+                    disabled={submitStatus !== "idle" || !termsAccepted}
+                  >
+                    {submitStatus === "creating"
+                      ? "Creando orden..."
+                      : submitStatus === "redirecting"
+                        ? "Redirigiendo a GalioPay..."
+                        : "Confirmar y pagar con GalioPay"}
                   </PrimaryButton>
                 </section>
               </form>
@@ -557,7 +628,11 @@ export function CheckoutPage() {
           <div className="bg-background rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold">Términos y condiciones</h2>
-              <button type="button" onClick={() => setShowTerms(false)} className="text-on-surface hover:text-primary">
+              <button
+                type="button"
+                onClick={() => setShowTerms(false)}
+                className="text-on-surface hover:text-primary"
+              >
                 <X size={20} />
               </button>
             </div>

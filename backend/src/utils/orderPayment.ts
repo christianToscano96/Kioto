@@ -1,5 +1,9 @@
 import type { IOrder } from '../models/Order';
-import { sendOrderConfirmationEmail, sendAdminNotificationEmail } from '../services/email';
+import {
+  sendAdminNotificationEmail,
+  sendOrderConfirmationEmailIfNeeded,
+  sendOrderShippedEmailIfNeeded,
+} from '../services/email';
 import { deductStockForItems, restoreStockForItems } from './stock';
 import type { PaymentFailureReason } from './galioPaymentStatus';
 import { notifyOrderPaid, notifyOrderPaymentFailed } from './notifications';
@@ -10,39 +14,39 @@ export async function markOrderAsPaid(
   order: IOrder,
   options?: { galioPaymentId?: string; skipEmails?: boolean },
 ): Promise<{ alreadyProcessed: boolean }> {
-  if (order.status === 'paid') {
-    return { alreadyProcessed: true };
-  }
-
-  await deductStockForItems(order.items as any);
-  order.status = 'paid';
-  order.paymentFailureReason = undefined;
-
-  if (options?.galioPaymentId) {
-    order.galioPaymentId = options.galioPaymentId;
-  }
-
-  await order.save();
-
-  if (order.sessionId) {
-    const { markCartAsConverted } = await import('./cart');
-    await markCartAsConverted(order.sessionId);
-  }
-
+  const alreadyProcessed = order.status === 'paid';
   const orderId = order._id.toString();
 
-  if (!options?.skipEmails) {
-    sendOrderConfirmationEmail(order, orderId)
-      .then(() => console.log(`[EMAIL] Customer confirmation sent for order ${orderId}`))
-      .catch((err) => console.error(`[EMAIL-ERROR] Customer confirmation failed for order ${orderId}:`, err));
-    sendAdminNotificationEmail(order, orderId, order.shippingDetails?.name || 'Cliente')
-      .then(() => console.log(`[EMAIL] Admin notification sent for order ${orderId}`))
-      .catch((err) => console.error(`[EMAIL-ERROR] Admin notification failed for order ${orderId}:`, err));
+  if (!alreadyProcessed) {
+    await deductStockForItems(order.items as any);
+    order.status = 'paid';
+    order.paymentFailureReason = undefined;
+
+    if (options?.galioPaymentId) {
+      order.galioPaymentId = options.galioPaymentId;
+    }
+
+    await order.save();
+
+    if (order.sessionId) {
+      const { markCartAsConverted } = await import('./cart');
+      await markCartAsConverted(order.sessionId);
+    }
+
+    notifyOrderPaid(orderId).catch(console.error);
+
+    if (!options?.skipEmails) {
+      sendAdminNotificationEmail(order, orderId, order.shippingDetails?.name || 'Cliente').catch((err) => {
+        console.error(`[EMAIL-ERROR] Admin notification failed for order ${orderId}:`, err);
+      });
+    }
   }
 
-  notifyOrderPaid(orderId).catch(console.error);
+  if (!options?.skipEmails) {
+    await sendOrderConfirmationEmailIfNeeded(orderId);
+  }
 
-  return { alreadyProcessed: false };
+  return { alreadyProcessed };
 }
 
 export async function markOrderAsFailed(
@@ -77,4 +81,8 @@ export async function markOrderAsCancelled(
 
   order.status = 'cancelled';
   await order.save();
+}
+
+export async function notifyCustomerOrderShipped(orderId: string): Promise<boolean> {
+  return sendOrderShippedEmailIfNeeded(orderId);
 }

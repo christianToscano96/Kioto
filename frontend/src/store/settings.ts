@@ -39,8 +39,8 @@ fetchSettings: async () => {
    updateSettings: async (settings) => {
      set({ isLoading: true, error: null });
      try {
-       await settingsApi.update(settings);
-       set({ settings });
+       const { data } = await settingsApi.update(settings);
+       set({ settings: data });
      } catch (error) {
        const message = error instanceof Error ? error.message : 'Failed to update settings';
        set({ error: message });

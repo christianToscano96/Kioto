@@ -5,6 +5,7 @@ import User from '../models/User';
 import { verifyToken } from '../utils/jwt';
 import { resetSettingsCache, testBrevoConnection } from '../services/email';
 import { resetGalioSettingsCache, testGalioConnection } from '../services/galio';
+import { mergeSettingsUpdate, maskSettingsSecrets } from '../utils/mergeSettings';
 
 interface Settings {
   store?: {
@@ -131,7 +132,7 @@ router.get('/', async (req, res) => {
         const decoded = verifyToken(token);
         const user = await User.findById(decoded.userId).select('role').lean();
         if (user?.role === 'admin') {
-          res.json(rawSettings);
+          res.json(maskSettingsSecrets(rawSettings));
           return;
         }
       } catch {
@@ -157,16 +158,24 @@ router.put('/', authenticate, adminOnly, async (req, res) => {
 
     let existingSettings = await Settings.findOne();
     if (existingSettings) {
-      // Update existing
-      Object.assign(existingSettings, settings);
+      mergeSettingsUpdate(existingSettings, settings);
+      existingSettings.markModified('store');
+      existingSettings.markModified('email');
+      existingSettings.markModified('payments');
+      existingSettings.markModified('notifications');
+      existingSettings.markModified('appearance');
+      existingSettings.markModified('security');
+      existingSettings.markModified('social');
+      existingSettings.markModified('policies');
       await existingSettings.save();
       resetSettingsCache();
       resetGalioSettingsCache();
-      res.json(existingSettings.toObject());
+      res.json(maskSettingsSecrets(existingSettings.toObject()));
     } else {
-      // Create new
       const newSettings = await Settings.create(settings);
-      res.json(newSettings.toObject());
+      resetSettingsCache();
+      resetGalioSettingsCache();
+      res.json(maskSettingsSecrets(newSettings.toObject()));
     }
   } catch (error) {
     console.error('Error updating settings:', error);

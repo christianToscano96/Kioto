@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { authenticate, adminOnly } from '../middleware/auth';
 import Order from '../models/Order';
 import Product from '../models/Product';
-import { resendOrderConfirmationEmail } from '../services/email';
+import { resendOrderConfirmationEmail, sendOrderConfirmationEmailIfNeeded, sendOrderShippedEmailIfNeeded } from '../services/email';
 import { getPayment, refundPayment } from '../services/galio';
 import { assertStockAvailable, deductStockForItems } from '../utils/stock';
 import { markOrderAsCancelled } from '../utils/orderPayment';
@@ -94,6 +94,8 @@ router.patch('/:id/status', async (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
 
+    const previousStatus = order.status;
+
     if (status === 'paid' && order.status === 'pending') {
       const { markOrderAsPaid } = await import('../utils/orderPayment');
       await markOrderAsPaid(order);
@@ -110,6 +112,15 @@ router.patch('/:id/status', async (req, res) => {
 
     order.status = status;
     await order.save();
+
+    if (status === 'shipped' && previousStatus !== 'shipped') {
+      await sendOrderShippedEmailIfNeeded(order._id.toString());
+    }
+
+    if (status === 'delivered' && previousStatus !== 'delivered' && !order.shippedEmailSentAt) {
+      await sendOrderShippedEmailIfNeeded(order._id.toString());
+    }
+
     res.json(order);
   } catch (error) {
     console.error('Order status update error:', error);
@@ -242,6 +253,8 @@ router.post('/manual', async (req, res) => {
         address: {},
       },
     });
+
+    await sendOrderConfirmationEmailIfNeeded(order._id.toString());
 
     res.status(201).json(order);
   } catch (error) {
