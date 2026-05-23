@@ -36,6 +36,7 @@ interface ProductVariantPickerProps {
   layout?: 'compact' | 'detail';
   submitLabel?: string;
   showSubmit?: boolean;
+  showSummary?: boolean;
   className?: string;
 }
 
@@ -98,6 +99,7 @@ export function ProductVariantPicker({
   layout = 'compact',
   submitLabel,
   showSubmit = true,
+  showSummary = false,
   className = '',
 }: ProductVariantPickerProps) {
   const inventoryMode = getInventoryMode(product);
@@ -236,8 +238,8 @@ export function ProductVariantPicker({
         </p>
       )}
 
-      {summary && (
-        <p className="text-xs text-on-surface-variant bg-surface-container rounded-lg px-3 py-2">
+      {showSummary && summary && (
+        <p className="rounded-lg bg-surface-container px-3 py-2 text-xs text-on-surface-variant">
           {summary}
         </p>
       )}

@@ -8,15 +8,32 @@ interface SizeSelectorProps {
   product: Pick<Product, 'inventoryMode' | 'sizeVariants'>;
 }
 
+function getSelectedSizeMeta(stock: number, size: string): string {
+  if (stock === 0) return `Talla ${size} · Agotada`;
+  if (stock <= 5) return `Talla ${size} · Quedan ${stock}`;
+  return `Talla ${size}`;
+}
+
 export function SizeSelector({ sizes, selectedSize, onSelectSize, product }: SizeSelectorProps) {
   const getSizeStockValue = (size: string) => getSizeStock(product, size);
+  const selectedStock = selectedSize ? getSizeStockValue(selectedSize) : null;
 
   return (
     <div className="mb-8">
-      <span className="text-[10px] uppercase tracking-widest text-on-surface-variant/60 font-label">
-        Seleccionar Talla
-      </span>
-      <div className="flex flex-wrap gap-3 mt-4">
+      <div className="mb-4 flex items-baseline justify-between gap-3">
+        <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant/60">
+          Talla
+        </span>
+        {selectedSize && selectedStock !== null ? (
+          <span className="truncate text-xs text-on-surface-variant">
+            {getSelectedSizeMeta(selectedStock, selectedSize)}
+          </span>
+        ) : (
+          <span className="text-xs text-on-surface-variant/70">Elegí una</span>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-3">
         {sizes.map((size) => {
           const stock = getSizeStockValue(size);
           const isOutOfStock = stock === 0;
@@ -24,21 +41,28 @@ export function SizeSelector({ sizes, selectedSize, onSelectSize, product }: Siz
           return (
             <button
               key={size}
+              type="button"
               onClick={() => !isOutOfStock && onSelectSize(size)}
               disabled={isOutOfStock}
-              className={`relative px-4 py-2 border transition-all ${
+              aria-pressed={selectedSize === size}
+              className={`relative border px-4 py-2 transition-all ${
                 selectedSize === size
                   ? 'border-primary bg-primary-container text-on-primary-container'
                   : isOutOfStock
-                  ? 'border-outline-variant/30 text-on-surface-variant/50 cursor-not-allowed opacity-50'
-                  : 'border-outline-variant hover:border-primary'
+                    ? 'cursor-not-allowed border-outline-variant/30 text-on-surface-variant/50 opacity-50'
+                    : 'border-outline-variant hover:border-primary'
               }`}
+              title={
+                isOutOfStock
+                  ? `Talla ${size} · Agotada`
+                  : `Talla ${size} · ${stock} en stock`
+              }
             >
               <span className="font-serif text-sm">{size}</span>
               {stock > 0 && stock <= 3 && (
                 <span
-                  className="absolute -top-1 -right-1 w-2 h-2 bg-terracota-500 rounded-full"
-                  title={`¡Últimas ${stock} unidades!`}
+                  className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-terracota-500"
+                  aria-hidden="true"
                 />
               )}
               {stock === 0 && (
@@ -50,17 +74,6 @@ export function SizeSelector({ sizes, selectedSize, onSelectSize, product }: Siz
           );
         })}
       </div>
-
-      {selectedSize && (
-        <div className="mt-3 text-xs">
-          {(() => {
-            const stock = getSizeStockValue(selectedSize);
-            if (stock === 0) return <span className="text-error">Agotado</span>;
-            if (stock <= 2) return <span className="text-terracota-600">¡Últimas {stock} unidades!</span>;
-            return <span className="text-on-surface-variant">{stock} unidades disponibles</span>;
-          })()}
-        </div>
-      )}
     </div>
   );
 }

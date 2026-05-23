@@ -29,6 +29,18 @@ export type ArgentineProvinceId =
   | 'tierra_del_fuego'
   | 'tucuman';
 
+export const LOCAL_CITY = 'Ledesma';
+export const LOCAL_PROVINCE_ID: ArgentineProvinceId = 'jujuy';
+export const LOCAL_PROVINCE_NAME = 'Jujuy';
+
+export function getLocalAddressDefaults() {
+  return {
+    city: LOCAL_CITY,
+    state: LOCAL_PROVINCE_NAME,
+    provinceId: LOCAL_PROVINCE_ID,
+  };
+}
+
 export interface ArgentineProvince {
   id: ArgentineProvinceId;
   name: string;
@@ -177,7 +189,7 @@ function getPostalCodeNumber(postalCode: string): number | null {
 export function getMatchingProvinces(postalCode: string): ArgentineProvinceId[] {
   const numericCode = getPostalCodeNumber(postalCode);
   if (numericCode === null) return [];
-  if (isLocalPostalCode(postalCode)) return ['mendoza'];
+  if (isLocalPostalCode(postalCode)) return [LOCAL_PROVINCE_ID];
 
   return POSTAL_CODE_RANGES.filter(
     (range) => numericCode >= range.from && numericCode <= range.to,
@@ -261,8 +273,8 @@ export function calculateShipping(
       cost: 0,
       costMil: 0,
       label: 'Retiro en punto de entrega',
-      province: 'mendoza',
-      provinceName: getProvinceById('mendoza').name,
+      province: LOCAL_PROVINCE_ID,
+      provinceName: LOCAL_PROVINCE_NAME,
       zone: 'local',
       isFree: true,
       isValid: true,
@@ -273,9 +285,9 @@ export function calculateShipping(
     return {
       cost: 0,
       costMil: 0,
-      label: 'Envío local gratis (4512)',
-      province: 'mendoza',
-      provinceName: getProvinceById('mendoza').name,
+      label: `Envío local gratis (${LOCAL_CITY}, ${LOCAL_PROVINCE_NAME})`,
+      province: LOCAL_PROVINCE_ID,
+      provinceName: LOCAL_PROVINCE_NAME,
       zone: 'local',
       isFree: true,
       isValid: true,
@@ -334,7 +346,7 @@ export function resolvePaymentMethod(): PaymentMethod {
 
 export const PICKUP_POINT = {
   name: 'Kioto — Punto de retiro',
-  address: 'Luján de Cuyo, Mendoza (CP 4512)',
+  address: `${LOCAL_CITY}, ${LOCAL_PROVINCE_NAME} (CP ${LOCAL_POSTAL_CODE})`,
   postalCode: LOCAL_POSTAL_CODE,
   hours: 'Lun a Vie · 10:00 – 18:00',
   notes: 'Te avisamos por email cuando tu pedido esté listo para retirar.',

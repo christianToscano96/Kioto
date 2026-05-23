@@ -144,6 +144,7 @@ interface PrimaryButtonProps {
   type?: 'button' | 'submit';
   disabled?: boolean;
   className?: string;
+  form?: string;
 }
 
 export function PrimaryButton({ 
@@ -151,11 +152,13 @@ export function PrimaryButton({
   onClick, 
   type = 'button',
   disabled,
-  className = '' 
+  className = '',
+  form,
 }: PrimaryButtonProps) {
   return (
     <button
       type={type}
+      form={form}
       onClick={onClick}
       disabled={disabled}
       className={`w-full md:w-auto px-12 py-5 bg-primary text-on-primary font-label uppercase tracking-[0.2em] text-sm hover:bg-primary/90 transition-all active:scale-95 flex items-center justify-center gap-3 disabled:opacity-50 ${className}`}

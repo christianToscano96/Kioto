@@ -87,12 +87,12 @@ export function CartSidebar({ products }: CartSidebarProps) {
             <Link
               to={`/products/${product._id}`}
               onClick={resetSidebar}
-              className="relative block aspect-square rounded-xl overflow-hidden bg-surface-container border border-outline-variant/20"
+              className="relative flex aspect-square items-center justify-center overflow-hidden rounded-xl border border-outline-variant/20 bg-surface-container"
             >
               <img
                 src={images[currentImageIndex]}
                 alt={`${product.name} - imagen ${currentImageIndex + 1}`}
-                className="w-full h-full object-cover"
+                className="max-h-full max-w-full object-contain"
               />
             </Link>
           </div>

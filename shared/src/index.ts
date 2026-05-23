@@ -50,6 +50,10 @@ export type {
 
 export {
   LOCAL_POSTAL_CODE,
+  LOCAL_CITY,
+  LOCAL_PROVINCE_ID,
+  LOCAL_PROVINCE_NAME,
+  getLocalAddressDefaults,
   ARGENTINE_PROVINCES,
   normalizePostalCode,
   isLocalPostalCode,

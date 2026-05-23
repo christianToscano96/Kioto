@@ -170,12 +170,12 @@ export function QuickAddBottomSheet({ products, enabled = true }: QuickAddBottom
           <Link
             to={`/products/${product._id}`}
             onClick={handleClose}
-            className="relative block aspect-[5/4] max-h-[32dvh] w-full overflow-hidden rounded-xl border border-outline-variant/20 bg-surface-container"
+            className="relative flex min-h-[180px] max-h-[42dvh] w-full items-center justify-center overflow-hidden rounded-xl border border-outline-variant/20 bg-surface-container"
           >
             <img
               src={images[currentImageIndex]}
               alt={`${product.name} - imagen ${currentImageIndex + 1}`}
-              className="h-full w-full object-cover"
+              className="max-h-[42dvh] w-full object-contain"
             />
           </Link>
         )}

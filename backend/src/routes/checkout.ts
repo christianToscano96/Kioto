@@ -13,6 +13,8 @@ import {
   getProvinceByName,
   isLocalPostalCode,
   PICKUP_POINT,
+  getLocalAddressDefaults,
+  LOCAL_CITY,
   type DeliveryMethod,
 } from "../utils/shipping";
 import Cart from "../models/Cart";
@@ -234,11 +236,18 @@ router.post(
         address: {
           ...req.body.shippingDetails.address,
           postal_code: postalCode,
+          ...(isLocalPostalCode(postalCode)
+            ? {
+                city: req.body.shippingDetails.address.city?.trim() || LOCAL_CITY,
+                state: req.body.shippingDetails.address.state?.trim() || getLocalAddressDefaults().state,
+                country: req.body.shippingDetails.address.country || "AR",
+              }
+            : {}),
           ...(deliveryMethod === "pickup"
             ? {
                 line1: PICKUP_POINT.address,
-                city: "Ledesma",
-                state: "Jujuy",
+                city: LOCAL_CITY,
+                state: getLocalAddressDefaults().state,
                 country: req.body.shippingDetails.address.country || "AR",
               }
             : {}),

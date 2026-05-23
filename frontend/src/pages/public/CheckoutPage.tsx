@@ -10,7 +10,6 @@ import {
 import { PublicHeader } from "@/components/layout/PublicHeader";
 import { Footer } from "@/components/layout/Footer";
 import {
-  Stepper,
   FormSection,
   FloatingLabelInput,
   FloatingLabelSelect,
@@ -26,15 +25,17 @@ import {
   ARGENTINE_PROVINCES,
   PICKUP_POINT,
   calculateShipping,
+  formatShippingCost,
   formatShippingQuote,
+  getLocalAddressDefaults,
   getProvinceById,
   getProvinceFromPostalCode,
   isLocalPostalCode,
+  LOCAL_CITY,
+  LOCAL_PROVINCE_NAME,
   type ArgentineProvinceId,
   type DeliveryMethod,
 } from "@shared/index";
-
-type CheckoutStep = "shipping" | "payment" | "review";
 
 interface CheckoutFormData {
   name: string;
@@ -49,34 +50,42 @@ interface CheckoutFormData {
   };
 }
 
+const localDefaults = getLocalAddressDefaults();
+
 const initialFormData: CheckoutFormData = {
   name: "",
   email: "",
   address: {
     line1: "",
     line2: "",
-    city: "",
-    state: "Jujuy",
+    city: localDefaults.city,
+    state: localDefaults.state,
     postal_code: "",
     country: "AR",
   },
 };
 
-function validateShippingStep(
+function validateCheckoutForm(
   formData: CheckoutFormData,
   deliveryMethod: DeliveryMethod,
   provinceId: ArgentineProvinceId,
   shippingQuote: ReturnType<typeof calculateShipping>,
+  termsAccepted: boolean,
 ): string | null {
   if (!formData.email.trim()) return "Ingresá tu email";
   if (!formData.name.trim()) return "Ingresá tu nombre";
   if (!formData.address.postal_code.trim()) return "Ingresá tu código postal";
+  if (!termsAccepted) return "Aceptá los términos y condiciones";
 
   if (deliveryMethod === "shipping") {
     if (!formData.address.line1.trim()) return "Ingresá tu dirección";
-    if (!formData.address.city.trim()) return "Ingresá tu ciudad";
-    if (!provinceId) return "Seleccioná tu provincia";
+    if (!isLocalPostalCode(formData.address.postal_code)) {
+      if (!formData.address.city.trim()) return "Ingresá tu ciudad";
+      if (!provinceId) return "Seleccioná tu provincia";
+    }
     if (!shippingQuote.isValid) return shippingQuote.label;
+  } else if (!shippingQuote.isValid) {
+    return shippingQuote.label;
   }
 
   return null;
@@ -88,9 +97,10 @@ export function CheckoutPage() {
   const cartTotal = useCartTotal();
   const cartLoading = useCartIsLoading();
 
-  const [step, setStep] = useState<CheckoutStep>("shipping");
   const [formData, setFormData] = useState<CheckoutFormData>(initialFormData);
-  const [provinceId, setProvinceId] = useState<ArgentineProvinceId>("mendoza");
+  const [provinceId, setProvinceId] = useState<ArgentineProvinceId>(
+    localDefaults.provinceId,
+  );
   const [deliveryMethod, setDeliveryMethod] =
     useState<DeliveryMethod>("shipping");
   const [error, setError] = useState<string | null>(null);
@@ -133,10 +143,30 @@ export function CheckoutPage() {
   );
   const shipping = shippingQuote.cost;
   const total = cartTotal + shipping;
+  const payButtonLabel =
+    submitStatus === "creating"
+      ? "Creando orden..."
+      : submitStatus === "redirecting"
+        ? "Redirigiendo a GalioPay..."
+        : `Pagar ${formatShippingCost(total)}`;
+
+  useEffect(() => {
+    if (!isLocal) return;
+
+    setProvinceId(localDefaults.provinceId);
+    setFormData((prev) => ({
+      ...prev,
+      address: {
+        ...prev.address,
+        city: localDefaults.city,
+        state: localDefaults.state,
+      },
+    }));
+  }, [isLocal]);
 
   useEffect(() => {
     const postalCode = formData.address.postal_code.trim();
-    if (!postalCode || provinceLockedByUser.current) return;
+    if (!postalCode || provinceLockedByUser.current || isLocal) return;
 
     const detected = getProvinceFromPostalCode(postalCode);
     if (detected) {
@@ -146,7 +176,7 @@ export function CheckoutPage() {
         address: { ...prev.address, state: getProvinceById(detected).name },
       }));
     }
-  }, [formData.address.postal_code]);
+  }, [formData.address.postal_code, isLocal]);
 
   useEffect(() => {
     if (!isLocal && deliveryMethod === "pickup") {
@@ -164,10 +194,6 @@ export function CheckoutPage() {
       })
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [step]);
 
   const handleInputChange = (field: string, value: string) => {
     if (field.startsWith("address.")) {
@@ -198,33 +224,21 @@ export function CheckoutPage() {
     }));
   };
 
-  const handleNext = () => {
-    if (step === "shipping") {
-      const validationError = validateShippingStep(
-        formData,
-        deliveryMethod,
-        provinceId,
-        shippingQuote,
-      );
-      if (validationError) {
-        showToast({ type: "error", title: validationError });
-        return;
-      }
-      setStep("payment");
-    } else if (step === "payment") {
-      setStep("review");
-    }
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const handleBack = () => {
-    if (step === "payment") setStep("shipping");
-    else if (step === "review") setStep("payment");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+
+    const validationError = validateCheckoutForm(
+      formData,
+      deliveryMethod,
+      provinceId,
+      shippingQuote,
+      termsAccepted,
+    );
+    if (validationError) {
+      showToast({ type: "error", title: validationError });
+      return;
+    }
+
     setSubmitStatus("creating");
     setError(null);
 
@@ -267,12 +281,6 @@ export function CheckoutPage() {
     }
   };
 
-  const steps = [
-    { number: "01", label: "Envío", active: step === "shipping" },
-    { number: "02", label: "Pago", active: step === "payment" },
-    { number: "03", label: "Revisión", active: step === "review" },
-  ];
-
   if (cartLoading) {
     return (
       <>
@@ -314,301 +322,218 @@ export function CheckoutPage() {
     <>
       <PublicHeader />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-20 pb-28 lg:pb-20">
-        <div className="mb-16 mt-8 animate-fade-in">
-          <div className="text-center mt-6">
-            <BackButton
-              label="Volver"
-              showLabelOnMobile={true}
-              page="checkout"
-            />
-          </div>
-          <h1 className="font-serif text-4xl md:text-5xl lg:text-6xl tracking-tight mb-12">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-16 pb-36 lg:pb-16">
+        <div className="mb-10 mt-4 animate-fade-in">
+          <BackButton label="Volver" showLabelOnMobile={true} page="checkout" />
+          <h1 className="font-serif text-4xl md:text-5xl tracking-tight mt-6">
             Finalizar compra
           </h1>
-          <Stepper steps={steps} />
+          <p className="mt-3 text-on-surface-variant text-sm md:text-base">
+            Completá tus datos y pagá con GalioPay en un solo paso.
+          </p>
         </div>
 
-        <PendingPaymentBanner className="mb-10" variant="checkout" />
+        <PendingPaymentBanner className="mb-8" variant="checkout" />
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 items-start">
-          <div className="lg:col-span-7 space-y-12">
-            {step === "shipping" && (
-              <form
-                onSubmit={(event) => event.preventDefault()}
-                className="animate-fade-in space-y-8"
-              >
-                <FormSection title="Información de contacto">
-                  <div className="space-y-6">
-                    <FloatingLabelInput
-                      label="Correo electrónico"
-                      type="email"
-                      placeholder="tu@email.com"
-                      value={formData.email}
-                      onChange={(event) =>
-                        handleInputChange("email", event.target.value)
-                      }
-                    />
-                    <FloatingLabelInput
-                      label="Nombre completo"
-                      value={formData.name}
-                      onChange={(event) =>
-                        handleInputChange("name", event.target.value)
-                      }
-                    />
-                  </div>
-                </FormSection>
-
-                <FormSection title="Código postal">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
+          <div className="lg:col-span-7">
+            <form
+              onSubmit={handleSubmit}
+              className="animate-fade-in space-y-8"
+              id="checkout-form"
+            >
+              <FormSection title="Tus datos">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <FloatingLabelInput
-                    label="Código postal"
-                    placeholder="4512, Y4512 o 1406"
-                    value={formData.address.postal_code}
+                    label="Correo electrónico"
+                    type="email"
+                    placeholder="tu@email.com"
+                    value={formData.email}
                     onChange={(event) =>
-                      handlePostalCodeChange(event.target.value)
+                      handleInputChange("email", event.target.value)
                     }
                   />
-                  {formData.address.postal_code && (
-                    <p
-                      className={`mt-3 text-sm ${shippingQuote.isValid ? "text-on-surface-variant" : "text-red-600"}`}
+                  <FloatingLabelInput
+                    label="Nombre completo"
+                    value={formData.name}
+                    onChange={(event) =>
+                      handleInputChange("name", event.target.value)
+                    }
+                  />
+                  <div className="md:col-span-2">
+                    <FloatingLabelInput
+                      label="Código postal"
+                      placeholder="4512, Y4512 o 1406"
+                      value={formData.address.postal_code}
+                      onChange={(event) =>
+                        handlePostalCodeChange(event.target.value)
+                      }
+                    />
+                    {formData.address.postal_code && (
+                      <p
+                        className={`mt-3 text-sm ${shippingQuote.isValid ? "text-on-surface-variant" : "text-red-600"}`}
+                      >
+                        {shippingQuote.label} ·{" "}
+                        {formatShippingQuote(shippingQuote)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </FormSection>
+
+              {isLocal && (
+                <FormSection title="Entrega en zona local">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setDeliveryMethod("shipping")}
+                      className={`text-left p-4 rounded-xl border transition-all ${
+                        deliveryMethod === "shipping"
+                          ? "border-primary bg-primary-container/15 ring-1 ring-primary/20"
+                          : "border-outline-variant/40 hover:border-outline-variant"
+                      }`}
                     >
-                      {shippingQuote.label} ·{" "}
-                      {formatShippingQuote(shippingQuote)}
+                      <p className="font-label text-xs uppercase tracking-wider mb-1">
+                        Envío a domicilio
+                      </p>
+                      <p className="text-sm text-on-surface-variant">
+                        Gratis · {LOCAL_CITY}, {LOCAL_PROVINCE_NAME}
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeliveryMethod("pickup")}
+                      className={`text-left p-4 rounded-xl border transition-all ${
+                        deliveryMethod === "pickup"
+                          ? "border-primary bg-primary-container/15 ring-1 ring-primary/20"
+                          : "border-outline-variant/40 hover:border-outline-variant"
+                      }`}
+                    >
+                      <p className="font-label text-xs uppercase tracking-wider mb-1">
+                        Retiro en punto
+                      </p>
+                      <p className="text-sm text-on-surface-variant">
+                        {PICKUP_POINT.name}
+                      </p>
+                    </button>
+                  </div>
+                </FormSection>
+              )}
+
+              {deliveryMethod === "pickup" ? (
+                <div className="rounded-xl border border-outline-variant/30 bg-surface-container p-5 text-sm text-on-surface-variant space-y-1">
+                  <p className="font-medium text-on-surface">
+                    {PICKUP_POINT.name}
+                  </p>
+                  <p>{PICKUP_POINT.address}</p>
+                  <p>{PICKUP_POINT.hours}</p>
+                  <p className="text-primary pt-2">{PICKUP_POINT.notes}</p>
+                </div>
+              ) : (
+                <FormSection title="Dirección de envío">
+                  {isLocal && (
+                    <p className="-mt-4 mb-6 text-sm text-on-surface-variant">
+                      Zona detectada:{" "}
+                      <span className="font-medium text-on-surface">
+                        {LOCAL_CITY}, {LOCAL_PROVINCE_NAME}
+                      </span>
                     </p>
                   )}
-                </FormSection>
-
-                {isLocal && (
-                  <FormSection title="Forma de entrega (zona local)">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setDeliveryMethod("shipping")}
-                        className={`text-left p-4 rounded-xl border transition-all ${
-                          deliveryMethod === "shipping"
-                            ? "border-primary bg-primary-container/15 ring-1 ring-primary/20"
-                            : "border-outline-variant/40 hover:border-outline-variant"
-                        }`}
-                      >
-                        <p className="font-label text-xs uppercase tracking-wider mb-1">
-                          Envío a domicilio
-                        </p>
-                        <p className="text-sm text-on-surface-variant">
-                          Gratis en CP 4512
-                        </p>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDeliveryMethod("pickup")}
-                        className={`text-left p-4 rounded-xl border transition-all ${
-                          deliveryMethod === "pickup"
-                            ? "border-primary bg-primary-container/15 ring-1 ring-primary/20"
-                            : "border-outline-variant/40 hover:border-outline-variant"
-                        }`}
-                      >
-                        <p className="font-label text-xs uppercase tracking-wider mb-1">
-                          Retiro en punto
-                        </p>
-                        <p className="text-sm text-on-surface-variant">
-                          {PICKUP_POINT.name}
-                        </p>
-                      </button>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="md:col-span-2">
+                      <FloatingLabelInput
+                        label="Dirección"
+                        placeholder="Calle y número"
+                        value={formData.address.line1}
+                        onChange={(event) =>
+                          handleInputChange("address.line1", event.target.value)
+                        }
+                      />
                     </div>
-                  </FormSection>
-                )}
-
-                {deliveryMethod === "pickup" ? (
-                  <div className="rounded-xl border border-outline-variant/30 bg-surface-container p-5 text-sm text-on-surface-variant space-y-1">
-                    <p className="font-medium text-on-surface">
-                      {PICKUP_POINT.name}
-                    </p>
-                    <p>{PICKUP_POINT.address}</p>
-                    <p>{PICKUP_POINT.hours}</p>
-                    <p className="text-primary pt-2">{PICKUP_POINT.notes}</p>
-                  </div>
-                ) : (
-                  <FormSection title="Dirección de envío">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      <div className="md:col-span-2">
+                    {!isLocal && (
+                      <>
                         <FloatingLabelInput
-                          label="Dirección"
-                          placeholder="Calle y número"
-                          value={formData.address.line1}
+                          label="Ciudad"
+                          value={formData.address.city}
                           onChange={(event) =>
                             handleInputChange(
-                              "address.line1",
+                              "address.city",
                               event.target.value,
                             )
                           }
                         />
-                      </div>
-                      <FloatingLabelInput
-                        label="Ciudad"
-                        value={formData.address.city}
-                        onChange={(event) =>
-                          handleInputChange("address.city", event.target.value)
-                        }
-                      />
-                      <FloatingLabelSelect
-                        label="Provincia"
-                        value={provinceId}
-                        onChange={handleProvinceChange}
-                      >
-                        {ARGENTINE_PROVINCES.map((province) => (
-                          <option key={province.id} value={province.id}>
-                            {province.name}
-                          </option>
-                        ))}
-                      </FloatingLabelSelect>
-                    </div>
-                  </FormSection>
-                )}
-
-                <section className="pt-4 flex flex-col sm:flex-row gap-4">
-                  <button
-                    type="button"
-                    onClick={() => navigate("/cart")}
-                    className="px-6 py-3 border border-outline-variant hover:bg-surface-container transition-colors rounded-lg"
-                  >
-                    Volver al carrito
-                  </button>
-                  <PrimaryButton type="button" onClick={handleNext}>
-                    Continuar al pago
-                  </PrimaryButton>
-                </section>
-              </form>
-            )}
-
-            {step === "payment" && (
-              <form
-                onSubmit={(event) => event.preventDefault()}
-                className="animate-fade-in space-y-8"
-              >
-                <FormSection title="Método de pago">
-                  <div className="p-6 border border-primary rounded-xl bg-primary-container/10">
-                    <h3 className="font-serif text-lg font-bold text-on-surface mb-2">
-                      Transferencia vía GalioPay
-                    </h3>
-                    <p className="text-sm text-on-surface-variant">
-                      Pagás por transferencia bancaria en una página segura de
-                      GalioPay.
-                      {isLocal && deliveryMethod === "pickup"
-                        ? " Después del pago, retirás en nuestro punto de entrega."
-                        : isLocal
-                          ? " Envío local gratis en CP 4512."
-                          : ""}
-                    </p>
+                        <FloatingLabelSelect
+                          label="Provincia"
+                          value={provinceId}
+                          onChange={handleProvinceChange}
+                        >
+                          {ARGENTINE_PROVINCES.map((province) => (
+                            <option key={province.id} value={province.id}>
+                              {province.name}
+                            </option>
+                          ))}
+                        </FloatingLabelSelect>
+                      </>
+                    )}
                   </div>
                 </FormSection>
+              )}
 
-                <section className="pt-4 flex flex-col sm:flex-row gap-4">
-                  <button
-                    type="button"
-                    onClick={handleBack}
-                    className="px-6 py-3 border border-outline-variant hover:bg-surface-container transition-colors rounded-lg"
-                  >
-                    Volver
-                  </button>
-                  <PrimaryButton type="button" onClick={handleNext}>
-                    Revisar pedido
-                  </PrimaryButton>
-                </section>
-              </form>
-            )}
+              <div className="rounded-xl border border-outline-variant/30 bg-surface-container-low/60 p-4 text-sm text-on-surface-variant">
+                <p className="font-medium text-on-surface mb-1">
+                  Pago con GalioPay
+                </p>
+                <p>
+                  Al confirmar, te redirigimos a una transferencia segura. No
+                  necesitás elegir otro método.
+                </p>
+              </div>
 
-            {step === "review" && (
-              <form
-                onSubmit={handleSubmit}
-                className="animate-fade-in space-y-8"
-              >
-                <FormSection title="Resumen del pedido">
-                  <div className="space-y-3 text-sm">
-                    <div className="flex justify-between py-2 border-b border-outline-variant/30">
-                      <span>Contacto</span>
-                      <span className="text-right">
-                        {formData.name}
-                        <br />
-                        {formData.email}
-                      </span>
-                    </div>
-                    <div className="flex justify-between py-2 border-b border-outline-variant/30">
-                      <span>Entrega</span>
-                      <span className="text-right max-w-[60%]">
-                        {deliveryMethod === "pickup"
-                          ? `Retiro · ${PICKUP_POINT.address}`
-                          : `${formData.address.line1}, ${formData.address.city}`}
-                      </span>
-                    </div>
-                    <div className="flex justify-between py-2 border-b border-outline-variant/30">
-                      <span>CP</span>
-                      <span>{formData.address.postal_code}</span>
-                    </div>
-                    <div className="flex justify-between py-2 border-b border-outline-variant/30">
-                      <span>Subtotal</span>
-                      <span>${cartTotal.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between py-2 border-b border-outline-variant/30">
-                      <span>Envío</span>
-                      <span>{formatShippingQuote(shippingQuote)}</span>
-                    </div>
-                    <div className="flex justify-between py-2 text-lg font-bold">
-                      <span>Total</span>
-                      <span className="text-primary">${total.toFixed(2)}</span>
-                    </div>
-                  </div>
-                </FormSection>
+              <div className="p-4 bg-surface-container rounded-lg border border-outline-variant/30">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={termsAccepted}
+                    onChange={(event) =>
+                      setTermsAccepted(event.target.checked)
+                    }
+                    className="w-5 h-5 mt-0.5 rounded border-outline focus:ring-2 focus:ring-primary"
+                  />
+                  <span className="text-sm text-on-surface">
+                    Acepto los{" "}
+                    <button
+                      type="button"
+                      onClick={() => setShowTerms(true)}
+                      className="text-primary hover:underline font-medium"
+                    >
+                      términos y condiciones
+                    </button>
+                  </span>
+                </label>
+              </div>
 
-                <div className="p-4 bg-surface-container rounded-lg border border-outline-variant/30">
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={termsAccepted}
-                      onChange={(event) =>
-                        setTermsAccepted(event.target.checked)
-                      }
-                      className="w-5 h-5 mt-0.5 rounded border-outline focus:ring-2 focus:ring-primary"
-                      required
-                    />
-                    <span className="text-sm text-on-surface">
-                      Acepto los{" "}
-                      <button
-                        type="button"
-                        onClick={() => setShowTerms(true)}
-                        className="text-primary hover:underline font-medium"
-                      >
-                        términos y condiciones
-                      </button>
-                    </span>
-                  </label>
+              {error && (
+                <div className="p-4 bg-red-50 text-red-600 rounded-lg">
+                  {error}
                 </div>
+              )}
 
-                {error && (
-                  <div className="p-4 bg-red-50 text-red-600 rounded-lg">
-                    {error}
-                  </div>
-                )}
-
-                <section className="pt-4 flex flex-col sm:flex-row gap-4">
-                  <button
-                    type="button"
-                    onClick={handleBack}
-                    className="px-6 py-3 border border-outline-variant hover:bg-surface-container transition-colors rounded-lg"
-                  >
-                    Volver
-                  </button>
-                  <PrimaryButton
-                    type="submit"
-                    disabled={submitStatus !== "idle" || !termsAccepted}
-                  >
-                    {submitStatus === "creating"
-                      ? "Creando orden..."
-                      : submitStatus === "redirecting"
-                        ? "Redirigiendo a GalioPay..."
-                        : "Confirmar y pagar con GalioPay"}
-                  </PrimaryButton>
-                </section>
-              </form>
-            )}
+              <section className="hidden lg:flex pt-2 flex-col sm:flex-row gap-4">
+                <button
+                  type="button"
+                  onClick={() => navigate("/cart")}
+                  className="px-6 py-3 border border-outline-variant hover:bg-surface-container transition-colors rounded-lg"
+                >
+                  Volver al carrito
+                </button>
+                <PrimaryButton
+                  type="submit"
+                  disabled={submitStatus !== "idle"}
+                >
+                  {payButtonLabel}
+                </PrimaryButton>
+              </section>
+            </form>
           </div>
 
           <OrderSummary
@@ -622,6 +547,27 @@ export function CheckoutPage() {
 
         <SecurityBadge message="Tu conexión está encriptada y tus datos son manejados con cuidado artesanal." />
       </main>
+
+      <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-outline-variant/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 p-4">
+        <div className="max-w-7xl mx-auto flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs uppercase tracking-wider text-on-surface-variant">
+              Total
+            </p>
+            <p className="text-lg font-bold text-primary">
+              {formatShippingCost(total)}
+            </p>
+          </div>
+          <PrimaryButton
+            type="submit"
+            form="checkout-form"
+            disabled={submitStatus !== "idle"}
+            className="shrink-0"
+          >
+            {submitStatus === "idle" ? "Pagar" : "Procesando..."}
+          </PrimaryButton>
+        </div>
+      </div>
 
       {showTerms && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
